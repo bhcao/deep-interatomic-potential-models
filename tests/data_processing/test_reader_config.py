@@ -17,7 +17,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from mlip.data.configs import ChemicalSystemsReaderConfig
+from dipm.data.configs import ChemicalSystemsReaderConfig
 
 DATA_DIR = Path(__file__).parent.parent / "data"
 SPICE_SMALL_HDF5_PATH = DATA_DIR / "spice2-1000_429_md_0-1.hdf5"

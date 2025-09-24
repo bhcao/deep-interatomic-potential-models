@@ -20,25 +20,25 @@ import jraph
 import numpy as np
 import pytest
 
-from mlip.data.chemical_system import ChemicalSystem
-from mlip.data.chemical_systems_readers.extxyz_reader import ExtxyzReader
-from mlip.data.configs import ChemicalSystemsReaderConfig, GraphDatasetBuilderConfig
-from mlip.data.graph_dataset_builder import (
+from dipm.data.chemical_system import ChemicalSystem
+from dipm.data.chemical_systems_readers.extxyz_reader import ExtxyzReader
+from dipm.data.configs import ChemicalSystemsReaderConfig, GraphDatasetBuilderConfig
+from dipm.data.graph_dataset_builder import (
     DatasetsHaveNotBeenProcessedError,
     GraphDataset,
     GraphDatasetBuilder,
     PrefetchIterator,
 )
-from mlip.data.helpers.atomic_energies import compute_average_e0s_from_graphs
-from mlip.data.helpers.atomic_number_table import AtomicNumberTable
-from mlip.data.helpers.data_split import (
+from dipm.data.helpers.atomic_energies import compute_average_e0s_from_graphs
+from dipm.data.helpers.atomic_number_table import AtomicNumberTable
+from dipm.data.helpers.data_split import (
     DataSplitProportions,
     SplitProportionsInvalidError,
     split_data_by_group,
     split_data_randomly,
     split_data_randomly_by_group,
 )
-from mlip.data.helpers.graph_creation import create_graph_from_chemical_system
+from dipm.data.helpers.graph_creation import create_graph_from_chemical_system
 
 DATA_DIR = Path(__file__).parent.parent / "data"
 SMALL_ASPIRIN_DATASET_PATH = DATA_DIR / "small_aspirin_test.xyz"

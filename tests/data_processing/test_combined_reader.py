@@ -17,11 +17,11 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from mlip.data.chemical_system import ChemicalSystem
-from mlip.data.chemical_systems_readers.combined_reader import CombinedReader
-from mlip.data.chemical_systems_readers.extxyz_reader import ExtxyzReader
-from mlip.data.chemical_systems_readers.hdf5_reader import Hdf5Reader
-from mlip.data.configs import ChemicalSystemsReaderConfig
+from dipm.data.chemical_system import ChemicalSystem
+from dipm.data.chemical_systems_readers.combined_reader import CombinedReader
+from dipm.data.chemical_systems_readers.extxyz_reader import ExtxyzReader
+from dipm.data.chemical_systems_readers.hdf5_reader import Hdf5Reader
+from dipm.data.configs import ChemicalSystemsReaderConfig
 
 DATA_DIR = Path(__file__).parent.parent / "data"
 SPICE_SMALL_HDF5_PATH = DATA_DIR / "spice2-1000_429_md_0-1.hdf5"

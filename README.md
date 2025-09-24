@@ -1,13 +1,13 @@
-# ⚛️ MLIP: SOTA Machine-Learning Interatomic Potentials in JAX 🚀
+# ⚛️ DIPM: Deep Interatomic Potentials Models in JAX 🚀
 
 ![badge](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/mlipbot/b6e4bf384215e60775699a83c3c00aef/raw/pytest-coverage-comment.json)
 
 ## 👀 Overview
 
 *mlip* is a Python library for training and deploying
-**Machine Learning Interatomic Potentials (MLIP)** written in JAX. It provides
+**Deep Interatomic Potentials Models (DIPM)** written in JAX. It provides
 the following functionality:
-- Multiple model architectures (for now: MACE, NequIP and ViSNet)
+- Multiple model architectures (for now: MACE, NequIP, ViSNet and LiTEN)
 - Dataset loading and preprocessing
 - Training and fine-tuning MLIP models
 - Batched inference with trained MLIP models

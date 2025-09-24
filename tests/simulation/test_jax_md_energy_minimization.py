@@ -12,8 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from mlip.simulation.enums import SimulationType
-from mlip.simulation.jax_md.jax_md_simulation_engine import JaxMDSimulationEngine
+from dipm.simulation.enums import SimulationType
+from dipm.simulation.jax_md.jax_md_simulation_engine import JaxMDSimulationEngine
 
 
 def test_minimization_can_be_run_with_jax_md_backend(setup_system_and_mace_model):

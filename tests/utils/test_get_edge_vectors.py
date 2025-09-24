@@ -19,10 +19,10 @@ import pytest
 from ase import Atoms
 from matscipy.neighbours import neighbour_list
 
-from mlip.data.helpers.edge_vectors import get_edge_relative_vectors
-from mlip.data.helpers.neighborhood import get_neighborhood
-from mlip.simulation.utils import create_graph_from_atoms
-from mlip.typing.graph_definition import GraphEdges, GraphGlobals, GraphNodes
+from dipm.data.helpers.edge_vectors import get_edge_relative_vectors
+from dipm.data.helpers.neighborhood import get_neighborhood
+from dipm.simulation.utils import create_graph_from_atoms
+from dipm.typing.graph_definition import GraphEdges, GraphGlobals, GraphNodes
 
 
 @pytest.fixture

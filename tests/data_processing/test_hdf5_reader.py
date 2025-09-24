@@ -20,10 +20,10 @@ import jraph
 import numpy as np
 import pytest
 
-from mlip.data.chemical_system import ChemicalSystem
-from mlip.data.chemical_systems_readers.hdf5_reader import Hdf5Reader
-from mlip.data.configs import ChemicalSystemsReaderConfig, GraphDatasetBuilderConfig
-from mlip.data.graph_dataset_builder import (
+from dipm.data.chemical_system import ChemicalSystem
+from dipm.data.chemical_systems_readers.hdf5_reader import Hdf5Reader
+from dipm.data.configs import ChemicalSystemsReaderConfig, GraphDatasetBuilderConfig
+from dipm.data.graph_dataset_builder import (
     DatasetsHaveNotBeenProcessedError,
     GraphDataset,
     GraphDatasetBuilder,

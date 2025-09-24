@@ -15,18 +15,18 @@
 import os
 from pathlib import Path
 
-import jax.tree_util
+import jax
 import optax
 import pytest
 
-from mlip.data.chemical_systems_readers.extxyz_reader import ExtxyzReader
-from mlip.data.configs import ChemicalSystemsReaderConfig, GraphDatasetBuilderConfig
-from mlip.data.graph_dataset_builder import GraphDatasetBuilder
-from mlip.data.helpers.dynamically_batch import dynamically_batch
-from mlip.models.loss import HuberLoss, MSELoss
-from mlip.models.params_loading import load_parameters_from_checkpoint
-from mlip.training.training_io_handler import LogCategory, TrainingIOHandler
-from mlip.training.training_loop import TrainingLoop
+from dipm.data.chemical_systems_readers.extxyz_reader import ExtxyzReader
+from dipm.data.configs import ChemicalSystemsReaderConfig, GraphDatasetBuilderConfig
+from dipm.data.graph_dataset_builder import GraphDatasetBuilder
+from dipm.data.helpers.dynamically_batch import dynamically_batch
+from dipm.loss.loss import HuberLoss, MSELoss
+from dipm.utils.params_loading import load_parameters_from_checkpoint
+from dipm.training.training_io_handler import LogCategory, TrainingIOHandler
+from dipm.training.training_loop import TrainingLoop
 
 DATA_DIR = Path(__file__).parent.parent / "data"
 SMALL_ASPIRIN_DATASET_PATH = DATA_DIR / "small_aspirin_test.xyz"

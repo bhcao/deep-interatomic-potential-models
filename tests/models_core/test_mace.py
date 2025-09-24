@@ -16,8 +16,9 @@ import e3nn_jax as e3nn
 import jax
 import pytest
 
-from mlip.models.mace.models import MaceBlock
-from mlip.models.radial_embedding import bessel_basis, soft_envelope
+from dipm.models.mace.models import MaceBlock
+from dipm.layers.radial_embeddings import soft_envelope
+from dipm.layers.radial_basis import bessel_basis
 
 
 @pytest.fixture

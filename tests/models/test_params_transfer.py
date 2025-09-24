@@ -19,7 +19,7 @@ from pathlib import Path
 import jax.tree_util
 import pytest
 
-from mlip.models.params_transfer import transfer_params
+from dipm.utils.params_transfer import transfer_params
 
 DATA_DIR = Path(__file__).parent.parent / "data"
 MACE_PARAMS_PICKLE_FILE = DATA_DIR / "mace_test_params.pkl"
@@ -37,12 +37,12 @@ def test_transfer_of_parameters_works_correctly(scale_factor):
     example_indexes = [(0, 0), (1, 2), (3, 2)]
     for i, j in example_indexes:
         assert float(
-            mace_params_1_head["params"]["mlip_network"]["MaceBlock_0"][
-                "LinearNodeEmbeddingBlock_0"
+            mace_params_1_head["params"]["force_model"]["MaceBlock_0"][
+                "LinearNodeEmbeddingLayer_0"
             ]["embeddings"][i][j]
         ) != float(
-            mace_params_3_heads["params"]["mlip_network"]["MaceBlock_0"][
-                "LinearNodeEmbeddingBlock_0"
+            mace_params_3_heads["params"]["force_model"]["MaceBlock_0"][
+                "LinearNodeEmbeddingLayer_0"
             ]["embeddings"][i][j]
         )
 
@@ -52,12 +52,12 @@ def test_transfer_of_parameters_works_correctly(scale_factor):
 
     for i, j in example_indexes:
         assert float(
-            mace_params_1_head["params"]["mlip_network"]["MaceBlock_0"][
-                "LinearNodeEmbeddingBlock_0"
+            mace_params_1_head["params"]["force_model"]["MaceBlock_0"][
+                "LinearNodeEmbeddingLayer_0"
             ]["embeddings"][i][j]
         ) == float(
-            transferred["params"]["mlip_network"]["MaceBlock_0"][
-                "LinearNodeEmbeddingBlock_0"
+            transferred["params"]["force_model"]["MaceBlock_0"][
+                "LinearNodeEmbeddingLayer_0"
             ]["embeddings"][i][j]
         )
 
@@ -68,7 +68,7 @@ def test_transfer_of_parameters_works_correctly(scale_factor):
         "NonLinearReadoutBlock_2",
     ]
 
-    mace_params_block = transferred["params"]["mlip_network"]["MaceBlock_0"]
+    mace_params_block = transferred["params"]["force_model"]["MaceBlock_0"]
     for block in [
         mace_params_block["layer_0"]["LinearReadoutBlock_1"],
         mace_params_block["layer_0"]["LinearReadoutBlock_2"],

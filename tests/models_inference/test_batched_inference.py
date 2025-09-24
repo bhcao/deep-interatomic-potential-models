@@ -19,7 +19,7 @@ import ase
 import numpy as np
 import pytest
 
-from mlip.inference import run_batched_inference
+from dipm.inference import run_batched_inference
 
 
 def test_batched_inference_works_correctly(setup_system_and_mace_model, caplog):

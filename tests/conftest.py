@@ -20,9 +20,9 @@ import numpy as np
 import pytest
 from ase.io import read as ase_read_atoms
 
-from mlip.data.dataset_info import DatasetInfo
-from mlip.models import ForceField, Mace, Nequip, Visnet
-from mlip.simulation.utils import create_graph_from_atoms
+from dipm.data.dataset_info import DatasetInfo
+from dipm.models import ForceField, Mace, Nequip, Visnet
+from dipm.simulation.utils import create_graph_from_atoms
 
 CUTOFF_ANGSTROM = 3.0
 XYZ_FILE_PATH = Path(__file__).parent / "data" / "Dimethyl_sulfoxide.xyz"
@@ -85,7 +85,7 @@ def setup_system_and_mace_model(setup_system):
     }
 
     mace_model = Mace(Mace.Config(**mace_kwargs), dataset_info)
-    mace_ff = ForceField.from_mlip_network(
+    mace_ff = ForceField.from_force_model(
         mace_model,
         seed=42,
         predict_stress=False,
@@ -120,7 +120,7 @@ def setup_system_and_visnet_model(setup_system):
         "vecnorm_type": "max_min",
     }
     visnet_model = Visnet(Visnet.Config(**visnet_kwargs), dataset_info)
-    visnet_ff = ForceField.from_mlip_network(
+    visnet_ff = ForceField.from_force_model(
         visnet_model,
         seed=42,
         predict_stress=False,
@@ -156,7 +156,7 @@ def setup_system_and_nequip_model(setup_system):
         "scalar_mlp_std": 4.0,
     }
     nequip_model = Nequip(Nequip.Config(**nequip_kwargs), dataset_info)
-    nequip_ff = ForceField.from_mlip_network(
+    nequip_ff = ForceField.from_force_model(
         nequip_model,
         seed=42,
         predict_stress=False,
