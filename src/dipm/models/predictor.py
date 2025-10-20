@@ -16,7 +16,6 @@ from dataclasses import replace
 from typing import TypeAlias
 
 import e3nn_jax as e3nn
-import jax
 import jax.numpy as jnp
 from flax import nnx
 import jraph
@@ -65,7 +64,7 @@ class ForceFieldPredictor(nnx.Module):
         self.predict_stress = predict_stress
         self.seed = seed
 
-    def __call__(self, graph: jraph.GraphsTuple) -> Prediction:
+    def __call__(self, graph: jraph.GraphsTuple, rngs: nnx.Rngs | None = None) -> Prediction:
         """Returns a `Prediction` dataclass of properties based on an input graph.
 
         Note: The stress-related properties and "pressure" have not yet been thoroughly
@@ -73,6 +72,7 @@ class ForceFieldPredictor(nnx.Module):
 
         Args:
             graph: The input graph.
+            rngs (optional): The random number generator for dropout. None for eval.
 
         Returns:
             The properties as a ``Prediction`` object that may include "energy",
@@ -80,7 +80,7 @@ class ForceFieldPredictor(nnx.Module):
             Only the first two exist if ``predict_stress=False`` is set for this module.
         """
         graph_energies, minus_forces, pseudo_stress = (
-            self._compute_graph_energies_and_grad_wrt_positions(graph)
+            self._compute_graph_energies_and_grad_wrt_positions(graph, rngs)
         )
 
         result = Prediction(
@@ -97,11 +97,11 @@ class ForceFieldPredictor(nnx.Module):
         return replace(stress_results, energy=graph_energies, forces=-minus_forces)
 
     def _compute_graph_energies_and_grad_wrt_positions(
-        self, graph: jraph.GraphsTuple
+        self, graph: jraph.GraphsTuple, rngs: nnx.Rngs | None = None
     ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-        (gradients, pseudo_stress), node_energies = jax.grad(
-            self._compute_energy, (0, 1), has_aux=True
-        )(graph.nodes.positions, graph.globals.cell, graph)
+        (gradients, pseudo_stress), node_energies = nnx.grad(
+            self._compute_energy, argnums=(0, 1), has_aux=True
+        )(graph.nodes.positions, graph.globals.cell, graph, rngs)
 
         graph_energies = e3nn.scatter_sum(
             node_energies, nel=graph.n_node
@@ -152,6 +152,7 @@ class ForceFieldPredictor(nnx.Module):
         positions: np.ndarray,
         cell: np.ndarray,
         graph: jraph.GraphsTuple,
+        rngs: nnx.Rngs | None = None,
     ) -> tuple[float, np.ndarray]:
         if graph.edges.shifts is None:
             assert graph.edges.displ_fun is not None
@@ -169,7 +170,7 @@ class ForceFieldPredictor(nnx.Module):
             )
 
         node_energies = self.force_model(
-            vectors, graph.nodes.species, graph.senders, graph.receivers
+            vectors, graph.nodes.species, graph.senders, graph.receivers, graph.n_node, rngs
         )  # [n_nodes, ]
         node_energies = node_energies * jraph.get_node_padding_mask(graph)
         assert node_energies.shape == (len(positions),), (

@@ -1,4 +1,4 @@
-# Copyright 2025 InstaDeep Ltd
+# Copyright 2025 Cao Bohan
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,11 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# flake8: noqa: A005
-from dipm.typing.fields import Irreps, NonNegativeInt, PositiveFloat, PositiveInt
-from dipm.typing.graph_definition import GraphEdges, GraphGlobals, GraphNodes
-from dipm.typing.prediction import Prediction
-from dipm.typing.signatures import (
-    GraphsTuple,
-    LossFunction,
-)
+import importlib.metadata
+
+__version__ = importlib.metadata.version("dipm_cvt")

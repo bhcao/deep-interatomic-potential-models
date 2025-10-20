@@ -116,6 +116,8 @@ class Nequip(ForceModel):
         node_species: jnp.ndarray,
         senders: jnp.ndarray,
         receivers: jnp.ndarray,
+        _n_node: jnp.ndarray, # Nel version of pyg.Data.batch, not used
+        _rngs: nnx.Rngs | None = None, # Rngs for dropout, None for eval, not used
     ) -> jnp.ndarray:
 
         node_energies = self.nequip_model(edge_vectors, node_species, senders, receivers)
@@ -392,7 +394,7 @@ class NequipLayer(nnx.Module):
 
         # The first feature is input features
         self.mlp = MultiLayerPerceptron(
-            (num_bessel,) + (radial_net_n_hidden,) * radial_net_n_layers + (n_tp_weights,),
+            [num_bessel] + [radial_net_n_hidden] * radial_net_n_layers + [n_tp_weights],
             activation=radial_net_nonlinearity,
             use_bias=False,
             use_act_norm=False,

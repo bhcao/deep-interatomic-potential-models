@@ -17,3 +17,4 @@ from dipm.models.mace.models import Mace
 from dipm.models.nequip.models import Nequip
 from dipm.models.visnet.models import Visnet
 from dipm.models.liten.models import LiTEN
+from dipm.models.equiformer_v2.models import EquiformerV2

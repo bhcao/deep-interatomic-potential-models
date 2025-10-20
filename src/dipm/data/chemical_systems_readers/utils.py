@@ -47,8 +47,8 @@ def _filter_systems_with_unseen_atoms(
             filtered_systems.append(chemical_system)
     if len(filtered_systems) < original_number_systems:
         logger.warning(
-            f"Removed {original_number_systems - len(filtered_systems)} "
-            f"systems due to missing atomic species in the training set."
+            "Removed %s systems due to missing atomic species in the training set.",
+            original_number_systems - len(filtered_systems),
         )
     return filtered_systems
 

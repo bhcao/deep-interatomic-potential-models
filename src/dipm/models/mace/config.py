@@ -56,6 +56,8 @@ class MaceConfig(BaseModel):
         radial_envelope: The radial envelope function, by default it
                          is `"polynomial_envelope"`.
                          The only other option is `"soft_envelope"`.
+        polymomial_degree: The degree of the polynomial envelope function if `"radial_envelope"`
+                           is `"polynomial_envelope"`. Default is 5.
         symmetric_tensor_product_basis: Whether to use a symmetric tensor product basis
                                         (default is `False`).
         atomic_energies: How to treat the atomic energies. If set to `None` (default)
@@ -91,10 +93,11 @@ class MaceConfig(BaseModel):
     correlation: PositiveInt = 3
     readout_irreps: tuple[Irreps, ...] = ("16x0e", "0e")
     num_readout_heads: PositiveInt = 1
-    include_pseudotensors: bool = False
+    include_pseudotensors: bool = True
     num_bessel: PositiveInt = 8
     activation: Activation = Activation.SILU
     radial_envelope: RadialEnvelope = RadialEnvelope.POLYNOMIAL
+    polymomial_degree: PositiveInt = 5
     symmetric_tensor_product_basis: bool = False
     atomic_energies: str | dict[int, float] | None = None
     avg_num_neighbors: float | None = None

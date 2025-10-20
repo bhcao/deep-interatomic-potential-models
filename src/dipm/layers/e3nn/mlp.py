@@ -24,7 +24,7 @@ from dipm.layers.activations import get_activation_fn
 
 
 class MultiLayerPerceptron(nnx.Module):
-    r"""Just a simple MLP for scalars. No equivariance here.
+    r"""Just a simple MLP for scalars. No equivariance here. Last layer will have no activation and no normalization.
 
     Args:
         list_neurons (list of int): number of neurons in each layer (excluding the input layer)
@@ -43,10 +43,10 @@ class MultiLayerPerceptron(nnx.Module):
 
     def __init__(
         self,
-        features: tuple[int, ...],
+        features_list: list[int],
         activation: str | None = None,
+        use_layer_norm: bool = False,
         gradient_normalization: str | float | None = None,
-        output_activation: str | bool = True,
         use_bias: bool = False,
         use_act_norm: bool = True,
         scalar_mlp_std: float = 1.0,
@@ -65,25 +65,19 @@ class MultiLayerPerceptron(nnx.Module):
 
         act_norm = e3nn.normalize_function if use_act_norm else (lambda x: x)
 
-        # Activation
+        # Activation and normalization
         self.act = (
             (lambda x: x)
             if activation is None
             else act_norm(get_activation_fn(activation))
         )
 
-        if output_activation is True:
-            self.last_act = self.act
-        elif output_activation is False:
-            self.last_act = lambda x: x
-        else:
-            self.last_act = act_norm(get_activation_fn(output_activation))
-
         # Layers
         self.layers = []
-        in_features = features[0]
-        for i, out_features in enumerate(features[1:]):
-            scale = scalar_mlp_std if i < len(features) - 1 else 1.0
+        self.norms = []
+        in_features = features_list[0]
+        for i, out_features in enumerate(features_list[1:]):
+            scale = scalar_mlp_std if i < len(features_list) - 2 else 1.0
             stddev = (scale / jnp.sqrt(in_features)) ** (1.0 - gradient_normalization)
             layer = nnx.Linear(
                 in_features,
@@ -94,6 +88,10 @@ class MultiLayerPerceptron(nnx.Module):
                 rngs=rngs,
             )
             self.layers.append(layer)
+            if use_layer_norm and i < len(features_list) - 2:
+                self.norms.append(nnx.LayerNorm(out_features, param_dtype=param_dtype, rngs=rngs))
+            else:
+                self.norms.append(lambda x: x) # placeholder
             in_features = out_features
 
 
@@ -117,13 +115,11 @@ class MultiLayerPerceptron(nnx.Module):
         else:
             output_irrepsarray = False
 
-        for i, layer in enumerate(self.layers):
+        for i, (layer, norm) in enumerate(zip(self.layers, self.norms)):
             alpha = 1 / x.shape[-1]
             x = jnp.sqrt(alpha) ** self.gradient_normalization * layer(x)
             if i < len(self.layers) - 1:
-                x = self.act(x)
-            else:
-                x = self.last_act(x)
+                x = self.act(norm(x))
 
         if output_irrepsarray:
             x = e3nn.IrrepsArray(e3nn.Irreps(f"{x.shape[-1]}x0e"), x)

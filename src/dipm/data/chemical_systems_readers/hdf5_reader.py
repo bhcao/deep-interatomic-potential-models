@@ -33,7 +33,6 @@ from dipm.data.chemical_systems_readers.utils import (
     filter_systems_with_unseen_atoms_and_assign_atomic_species,
 )
 
-STRESS_KEY = "stress"
 DEFAULT_WEIGHT = 1.0
 DEFAULT_PBC = np.zeros(3, bool)
 DEFAULT_CELL = np.zeros((3, 3))
@@ -77,11 +76,11 @@ class Hdf5Reader(ChemicalSystemsReader):
 
         if self.data_download_fun is None:
             return self._load_hdf5(filepath, num_to_load=num_to_load)
-        else:
-            with tempfile.TemporaryDirectory() as tmpdir:
-                tmp_filepath = Path(tmpdir) / "dataset.hdf5"
-                self.data_download_fun(filepath, tmp_filepath)
-                return self._load_hdf5(tmp_filepath, num_to_load=num_to_load)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_filepath = Path(tmpdir) / "dataset.hdf5"
+            self.data_download_fun(filepath, tmp_filepath)
+            return self._load_hdf5(tmp_filepath, num_to_load=num_to_load)
 
     def _load_chemical_systems(
         self, filepaths: list[str | os.PathLike], num_to_load: int | None = None
@@ -105,13 +104,13 @@ class Hdf5Reader(ChemicalSystemsReader):
     def _hdf5_row_to_chemical_system(self, structure: h5py.Group) -> ChemicalSystem:
         positions = structure["positions"][:]
         element_numbers = structure["elements"][:]
-        forces = structure["forces"][:]
-        energy = structure.attrs["energy"]
-        stress = None
-        if STRESS_KEY in structure:
-            # currently there's no stress in hdf5 from mlip-datagen, but might be in
-            # other hdf5s.
-            stress = structure[STRESS_KEY][:]
+
+        forces = structure["forces"][:] if "forces" in structure else None
+        energy = structure.attrs["energy"] if "energy" in structure.attrs else None
+        stress = structure["stress"][:] if "stress" in structure else None
+        pbc = structure["pbc"][:] if "pbc" in structure else DEFAULT_PBC
+        cell = structure["cell"][:] if "cell" in structure else DEFAULT_CELL
+        assert np.linalg.det(cell) >= 0.0
 
         return ChemicalSystem(
             atomic_numbers=element_numbers,
@@ -121,7 +120,7 @@ class Hdf5Reader(ChemicalSystemsReader):
             energy=energy,
             forces=forces,
             stress=stress,
-            cell=DEFAULT_CELL,
-            pbc=DEFAULT_PBC,
+            cell=cell,
+            pbc=pbc,
             weight=DEFAULT_WEIGHT,
         )

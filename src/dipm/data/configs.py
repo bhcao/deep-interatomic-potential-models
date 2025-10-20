@@ -27,6 +27,9 @@ class ChemicalSystemsReaderConfig(pydantic.BaseModel):
     """Pydantic-based config related to data preprocessing and loading into
     `ChemicalSystem`s.
 
+    When directories are given in `*_dataset_paths`, files ending with `.hdf5` or `.h5`
+    in those directories will be automatically detected and added.
+
     Attributes:
         train_dataset_paths: Path(s) to where the training set(s) are located.
                             Cannot be empty.
@@ -69,23 +72,38 @@ class ChemicalSystemsReaderConfig(pydantic.BaseModel):
         mode="before",
     )
     @classmethod
-    def convert_to_list(
+    def expand_path_to_list(
         cls, value: str | Path | list[str | Path] | ListConfig | None
     ) -> list[str | Path]:
-        """Support single element input for a list field, by converting it to a list
-        internally to simplify usage."""
+        """Converts a single path to a list of paths and expands directories."""
         if value is None:
             return []
+
         if isinstance(value, (str, Path)):
-            return [value]
-        if isinstance(value, list):
-            return value
-        if isinstance(value, ListConfig):
-            return list(value)
-        raise ValueError(
-            f"*_dataset_paths must be a string, Path, or a list of them, "
-            f"but was {type(value)} - {value}"
-        )
+            paths = [value]
+        elif isinstance(value, list):
+            paths = value
+        elif isinstance(value, ListConfig):
+            paths = list(value)
+        else:
+            raise ValueError(
+                f"*_dataset_paths must be a string, Path, or a list of them, "
+                f"but was {type(value)} - {value}"
+            )
+
+        expanded_paths = []
+        for path in paths:
+            if isinstance(path, str):
+                path = Path(path)
+            if path.is_dir():
+                for file in path.glob("*.hdf5"):
+                    expanded_paths.append(file)
+                for file in path.glob("*.h5"):
+                    expanded_paths.append(file)
+            else:
+                expanded_paths.append(path)
+        return expanded_paths
+
 
     @model_validator(mode="after")
     def validate_train_dataset_paths(self) -> Self:
@@ -125,6 +143,7 @@ class GraphDatasetBuilderConfig(pydantic.BaseModel):
                                 to ``True``, the models assume ``"zero"`` atomic
                                 energies as can be set in the model hyperparameters.
         avg_num_neighbors: The pre-computed average number of neighbors.
+        avg_num_nodes: The pre-computed average number of nodes per graph.
         avg_r_min_angstrom: The pre-computed average minimum distance between nodes.
 
     """
@@ -139,4 +158,5 @@ class GraphDatasetBuilderConfig(pydantic.BaseModel):
 
     use_formation_energies: bool = False
     avg_num_neighbors: float | None = None
+    avg_num_nodes: float | None = None
     avg_r_min_angstrom: float | None = None

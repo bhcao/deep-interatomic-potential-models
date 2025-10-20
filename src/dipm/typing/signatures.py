@@ -20,12 +20,6 @@ from jraph import GraphsTuple
 
 from dipm.typing.prediction import Prediction
 
-# ParameterDict from flax.linen
-ModelParameters: TypeAlias = dict[str, dict[str, Array | dict]]
-
-# ForceFieldPredictor.apply
-ModelPredictorFun: TypeAlias = Callable[[ModelParameters, GraphsTuple], Prediction]
-
 # LossFunction : (predictions, graph, epoch, eval_metrics) -> (loss, metrics)
 LossFunction: TypeAlias = Callable[
     [Prediction, GraphsTuple, int, bool],

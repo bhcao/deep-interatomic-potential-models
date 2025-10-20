@@ -214,10 +214,9 @@ class MessagePassingConvolution(nnx.Module):
         out_irreps = out_irreps.regroup()
 
         self.mix = MultiLayerPerceptron(
-            (radial_embedding_dim,) + 3 * (64,) + (out_irreps.num_irreps,),
+            [radial_embedding_dim] + 3 * [64] + [out_irreps.num_irreps],
             activation,
             gradient_normalization=1.0,
-            output_activation=False,
             param_dtype=param_dtype,
             rngs=rngs,
         )
@@ -225,10 +224,9 @@ class MessagePassingConvolution(nnx.Module):
         self.mix_species = None
         if species_embedding_dim is not None:
             self.mix_species = MultiLayerPerceptron(
-                (3*species_embedding_dim,) + 3 * (64,) + (out_irreps.num_irreps,),
+                [3*species_embedding_dim] + 3 * [64] + [out_irreps.num_irreps],
                 activation,
                 gradient_normalization=1.0,
-                output_activation=False,
                 use_bias=True,
                 param_dtype=param_dtype,
                 rngs=rngs,

@@ -1,5 +1,11 @@
 # Changelog
 
+## Release 0.0.2
+
+- Adding model architectures: EquiformerV2
+- Providing tools for converting LMDB and ExtXYZ datasets to HDF5 datasets, and
+  removing ExtXYZ dataset support
+
 ## Release 0.0.1
 
 - Adding model architectures: LiTEN

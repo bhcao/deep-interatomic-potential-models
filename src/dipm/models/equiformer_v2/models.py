@@ -1,0 +1,526 @@
+# Copyright 2025 InstaDeep Ltd and Cao Bohan
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+from e3nn_jax._src.rotation import xyz_to_angles
+from flax import nnx
+from flax.typing import Dtype
+import jax
+import jax.numpy as jnp
+
+from dipm.layers import (
+    get_rbf_cls,
+    get_layernorm_layer,
+    SO3Rotation,
+    SO3Grid,
+    GraphDropPath,
+)
+from dipm.data.dataset_info import DatasetInfo
+from dipm.models.force_model import ForceModel
+from dipm.models.atomic_energies import get_atomic_energies
+from dipm.models.equiformer_v2.config import EquiformerV2Config
+from dipm.models.equiformer_v2.utils import MappingCoefficients, mapping_coefficients
+from dipm.models.equiformer_v2.transformer_block import (
+    SO2EquivariantGraphAttention,
+    FeedForwardNetwork,
+)
+from dipm.models.equiformer_v2.blocks import (
+    SO3LinearV2,
+    EdgeDegreeEmbedding,
+)
+from dipm.utils.safe_norm import safe_norm
+
+
+class EquiformerV2(ForceModel):
+    """The EquiformerV2 model flax module. It is derived from the
+    :class:`~dipm.models.force_model.ForceModel` class.
+
+    References:
+        * Yi-Lun Liao, Brandon Wood, Abhishek Das and Tess Smidt. EquiformerV2:
+          Improved Equivariant Transformer for Scaling to Higher-Degree 
+          Representations. International Conference on Learning Representations (ICLR),
+          January 2024. URL: https://openreview.net/forum?id=mCOBKZmrzD.
+
+    Attributes:
+        config: Hyperparameters / configuration for the EquiformerV2 model, see
+                :class:`~dipm.models.equiformer_v2.config.EquiformerV2Config`.
+        dataset_info: Hyperparameters dictated by the dataset
+                      (e.g., cutoff radius or average number of neighbors).
+    """
+
+    Config = EquiformerV2Config
+    config: EquiformerV2Config
+
+    def __init__(
+        self,
+        config: dict | EquiformerV2Config,
+        dataset_info: DatasetInfo,
+        *,
+        param_dtype: Dtype = jnp.float32,
+        rngs: nnx.Rngs
+    ):
+        super().__init__(config, dataset_info)
+
+        r_max = self.dataset_info.cutoff_distance_angstrom
+
+        avg_num_neighbors = self.config.avg_num_neighbors
+        if avg_num_neighbors is None:
+            avg_num_neighbors = self.dataset_info.avg_num_neighbors
+
+        avg_num_nodes = self.config.avg_num_nodes
+        if avg_num_nodes is None:
+            avg_num_nodes = self.dataset_info.avg_num_nodes
+
+        num_species = self.config.num_species
+        if num_species is None:
+            num_species = len(self.dataset_info.atomic_energies_map)
+
+        equiformer_kargs = dict(
+            avg_num_neighbors=avg_num_neighbors,
+            num_layers=self.config.num_layers,
+            lmax=self.config.lmax,
+            mmax=self.config.mmax,
+            sphere_channels=self.config.sphere_channels,
+            num_edge_channels=self.config.num_edge_channels,
+            atom_edge_embedding=self.config.atom_edge_embedding,
+            num_rbf=self.config.num_rbf,
+            attn_hidden_channels=self.config.attn_hidden_channels,
+            num_heads=self.config.num_heads,
+            attn_alpha_channels=self.config.attn_alpha_channels,
+            attn_value_channels=self.config.attn_value_channels,
+            ffn_hidden_channels=self.config.ffn_hidden_channels,
+            norm_type=self.config.norm_type,
+            grid_resolution=self.config.grid_resolution,
+            use_m_share_rad=self.config.use_m_share_rad,
+            use_attn_renorm=self.config.use_attn_renorm,
+            use_gate_act=self.config.use_gate_act,
+            use_grid_mlp=self.config.use_grid_mlp,
+            use_sep_s2_act=self.config.use_sep_s2_act,
+            alpha_drop=self.config.alpha_drop,
+            drop_path_rate=self.config.drop_path_rate,
+            avg_num_nodes=avg_num_nodes,
+            rbf_type="gauss",
+            trainable_rbf=False,
+            rbf_width=2.0,
+            cutoff=r_max,
+            num_species=num_species,
+        )
+
+        self.equiformer_model = EquiformerV2Block(
+            **equiformer_kargs,
+            param_dtype=param_dtype,
+            rngs=rngs,
+        )
+
+        self.atomic_energies = get_atomic_energies(
+            self.dataset_info, self.config.atomic_energies, num_species
+        )
+
+    def __call__(
+        self,
+        edge_vectors: jnp.ndarray,
+        node_species: jnp.ndarray,
+        senders: jnp.ndarray,
+        receivers: jnp.ndarray,
+        n_node: jnp.ndarray, # Nel version of pyg.Data.batch
+        rngs: nnx.Rngs | None = None, # Rngs for dropout, None for eval
+    ) -> jnp.ndarray:
+        mask = receivers != senders
+        edge_distances = safe_norm(edge_vectors, axis=-1) * mask # [n_edges]
+        norm_edge_vectors = edge_vectors / jnp.where(mask == 1, edge_distances, 1.0)[:, None]
+
+        node_energies = self.equiformer_model(
+            norm_edge_vectors, edge_distances, node_species, senders, receivers, n_node, rngs
+        )
+
+        mean = self.dataset_info.scaling_mean
+        std = self.dataset_info.scaling_stdev
+        node_energies = mean + std * node_energies
+
+        node_energies += self.atomic_energies[node_species]  # [n_nodes, ]
+
+        return node_energies
+
+
+class EquiformerV2Block(nnx.Module):
+    """
+    Equiformer with graph attention built upon SO(2) convolution and feedforward network built upon
+    S2 activation.
+    """
+
+    def __init__(
+        self,
+        avg_num_neighbors: float,
+        num_layers: int,
+        lmax: int,
+        mmax: int,
+        sphere_channels: int,
+        num_species: int,
+        num_edge_channels: int,
+        atom_edge_embedding: str,
+        attn_hidden_channels: int,
+        num_heads: int,
+        attn_alpha_channels: int,
+        attn_value_channels: int,
+        ffn_hidden_channels: int,
+        norm_type: str,
+        grid_resolution: int,
+        use_m_share_rad: bool,
+        use_attn_renorm: bool,
+        use_gate_act: bool,
+        use_grid_mlp: bool,
+        use_sep_s2_act: bool,
+        alpha_drop: float,
+        drop_path_rate: float,
+        avg_num_nodes: float,
+        num_rbf: int = 600,
+        rbf_type: str = "gauss",
+        trainable_rbf: bool = False,
+        rbf_width: float = 2.0,
+        cutoff: float = 5.0,
+        *,
+        param_dtype: Dtype = jnp.float32,
+        rngs: nnx.Rngs
+    ):
+        self.lmax = lmax
+        self.avg_num_nodes = avg_num_nodes
+        self.deterministic = False # Randomness
+
+        sphere_channels_all = sphere_channels
+
+        # Weights for message initialization
+        self.sphere_embedding = nnx.Embed(
+            num_species, sphere_channels_all, param_dtype=param_dtype, rngs=rngs
+        )
+
+        # Function used to measure the distances between atoms
+        self.distance_expansion = get_rbf_cls(rbf_type)(
+            cutoff,
+            num_rbf,
+            trainable=trainable_rbf,
+            rbf_width=rbf_width,
+            param_dtype=param_dtype,
+            rngs=rngs,
+        )
+
+        # Sizes of radial functions (input channels and 2 hidden channels)
+        edge_channels_list = [num_rbf] + [num_edge_channels] * 2
+
+        # Atom edge embedding
+        self.senders_embedding, self.receivers_embedding = None, None
+        if atom_edge_embedding == 'shared':
+            self.senders_embedding = nnx.Embed(
+                num_species, num_edge_channels, param_dtype=param_dtype, rngs=rngs
+            )
+            self.receivers_embedding = nnx.Embed(
+                num_species, num_edge_channels, param_dtype=param_dtype, rngs=rngs
+            )
+            edge_channels_list[0] += 2 * num_edge_channels
+
+        # Module computing WignerD matrices and other values for spherical harmonic calculations
+        self.so3_rotation = SO3Rotation(lmax, mmax, dtype=param_dtype)
+
+        # Initialize conversion between degree l and order m layouts
+        self.mapping_coeffs = mapping_coefficients(lmax, mmax)
+
+        # Initialize the transformations between spherical and grid representations
+        self.so3_grid = SO3Grid(lmax, mmax, resolution=grid_resolution, dtype=param_dtype)
+        self.so3_grid_lmax = SO3Grid(lmax, lmax, resolution=grid_resolution, dtype=param_dtype)
+
+        # Edge-degree embedding
+        self.edge_degree_embedding = EdgeDegreeEmbedding(
+            sphere_channels,
+            self.so3_rotation,
+            self.mapping_coeffs,
+            num_species,
+            edge_channels_list,
+            atom_edge_embedding == 'isolated',
+            rescale_factor=avg_num_neighbors,
+            param_dtype=param_dtype,
+            rngs=rngs,
+        )
+
+        # Initialize the blocks for each layer of EquiformerV2
+        self.layers = []
+        for _ in range(num_layers):
+            layer = EquiformerV2Layer(
+                sphere_channels,
+                attn_hidden_channels,
+                num_heads,
+                attn_alpha_channels,
+                attn_value_channels,
+                ffn_hidden_channels,
+                sphere_channels,
+                self.so3_rotation,
+                self.mapping_coeffs,
+                self.so3_grid,
+                self.so3_grid_lmax,
+                num_species,
+                edge_channels_list,
+                atom_edge_embedding == 'isolated',
+                use_m_share_rad,
+                use_attn_renorm,
+                use_gate_act,
+                use_grid_mlp,
+                use_sep_s2_act,
+                norm_type,
+                alpha_drop,
+                drop_path_rate,
+                param_dtype=param_dtype,
+                rngs=rngs,
+            )
+            self.layers.append(layer)
+
+        # Output blocks for energy and forces
+        self.norm = get_layernorm_layer(
+            norm_type,
+            lmax=lmax,
+            num_channels=sphere_channels,
+            param_dtype=param_dtype,
+            rngs=rngs,
+        )
+        self.energy_block = FeedForwardNetwork(
+            sphere_channels,
+            ffn_hidden_channels,
+            1,
+            lmax,
+            self.so3_grid_lmax,
+            use_gate_act,
+            use_grid_mlp,
+            use_sep_s2_act,
+            param_dtype=param_dtype,
+            rngs=rngs,
+        )
+
+
+    def __call__(
+        self,
+        norm_edge_vectors: jnp.ndarray,  # [n_edges, 3]
+        edge_distances: jnp.ndarray, # [n_edges]
+        node_species: jnp.ndarray,  # [n_nodes] int between 0 and num_species-1
+        senders: jnp.ndarray,  # [n_edges]
+        receivers: jnp.ndarray,  # [n_edges]
+        n_node: jnp.ndarray,  # [batch_size]
+        rngs: nnx.Rngs | None = None,  # Rngs for dropout, None for eval
+    ):
+        num_atoms = len(node_species)
+
+        # Initialize the WignerD matrices and other values for spherical harmonic calculations
+        rot_alpha, rot_beta = xyz_to_angles(norm_edge_vectors)
+        if not self.deterministic:
+            assert rngs is not None
+            rot_gamma = jax.random.uniform(
+                rngs['rotation'](), shape=rot_alpha.shape, maxval=2 * jnp.pi
+            )
+        else:
+            rot_gamma = jnp.zeros_like(rot_alpha)
+        self.so3_rotation.set_wigner(rot_alpha, rot_beta, rot_gamma)
+
+        # Initialize the l = 0, m = 0 coefficients
+        node_feats_0 = self.sphere_embedding(node_species)[:, None]
+        node_feats_m_pad = jnp.zeros(
+            [num_atoms, (self.lmax + 1) ** 2 - 1, node_feats_0.shape[-1]],
+            dtype=edge_distances.dtype,
+        )
+        node_feats = jnp.concat((node_feats_0, node_feats_m_pad), axis=1)
+
+        # Edge encoding (distance and atom edge)
+        edge_distances = self.distance_expansion(edge_distances)
+        if self.senders_embedding is not None:
+            senders_species = node_species[senders] # Source atom atomic number
+            target_species = node_species[receivers] # Target atom atomic number
+            senders_embedding = self.senders_embedding(senders_species)
+            receivers_embedding = self.receivers_embedding(target_species)
+            edge_distances = jnp.concat(
+                (edge_distances, senders_embedding, receivers_embedding), axis=1
+            )
+
+        # Edge-degree embedding
+        edge_degree = self.edge_degree_embedding(
+            node_species, edge_distances, senders, receivers
+        )
+        node_feats = node_feats + edge_degree
+
+        for layer in self.layers:
+            node_feats = layer(
+                node_feats,
+                node_species,
+                edge_distances,
+                senders,
+                receivers,
+                n_node=n_node,  # for GraphDropPath
+                rngs=rngs,
+            )
+
+        # Final layer norm
+        node_feats = self.norm(node_feats)
+
+        node_energies = self.energy_block(node_feats)
+        node_energies = node_energies[:, 0, 0] / self.avg_num_nodes
+        return node_energies
+
+
+class EquiformerV2Layer(nnx.Module):
+    """
+
+    Args:
+        sphere_channels (int): Number of spherical channels
+        attn_hidden_channels (int): Number of hidden channels used during SO(2) graph attention
+        num_heads (int): Number of attention heads
+        attn_alpha_channels (int): Number of channels for alpha vector in each attention head
+        attn_value_channels (int): Number of channels for value vector in each attention head
+        ffn_hidden_channels (int): Number of hidden channels used during feedforward network
+        output_channels (int): Number of output channels
+        so3_rotation (SO3Rotation): Class to calculate Wigner-D matrices and rotate embeddings
+        mapping_coeffs (MappingCoefficients): Coefficients to convert l and m indices
+        so3_grid (SO3Grid): Class used to convert between grid and the spherical harmonic
+        so3_grid_lmax (SO3Grid): Class used to convert between grid and the mmax=lmax spherical
+            harmonic
+        num_species (int): Maximum number of atomic numbers
+        edge_channels_list (list:int): List of sizes of invariant edge embedding. For example,
+            [input_channels, hidden_channels, hidden_channels]. The last one will be used as hidden
+            size when `use_atom_edge_embedding` is `True`.
+        use_atom_edge_embedding (bool): Whether to use atomic embedding along with relative
+            distance for edge scalar features
+        use_m_share_rad (bool): Whether all m components within a type-L vector of one channel
+            share radial function weights
+        use_attn_renorm (bool): Whether to re-normalize attention weights
+        use_gate_act (bool): If `True`, use gate activation. Otherwise, use S2 activation
+        use_grid_mlp (bool): If `True`, use projecting to grids and performing MLPs for FFN.
+        use_sep_s2_act (bool): If `True`, use separable S2 activation when `use_gate_act` is False.
+        norm_type (str): Type of normalization layer (['layer_norm', 'layer_norm_sh'])
+        alpha_drop (float): Dropout rate for attention weights
+        drop_path_rate (float): Drop path rate
+    """
+
+    def __init__(
+        self,
+        sphere_channels: int,
+        attn_hidden_channels: int,
+        num_heads: int,
+        attn_alpha_channels: int,
+        attn_value_channels: int,
+        ffn_hidden_channels: int,
+        output_channels: int,
+        so3_rotation: SO3Rotation,
+        mapping_coeffs: MappingCoefficients,
+        so3_grid: SO3Grid,
+        so3_grid_lmax: SO3Grid,
+        num_species: int,
+        edge_channels_list: list[int],
+        use_atom_edge_embedding: bool = True,
+        use_m_share_rad: bool = False,
+        use_attn_renorm: bool = True,
+        use_gate_act: bool = False,
+        use_grid_mlp: bool = False,
+        use_sep_s2_act: bool = True,
+        norm_type: str = "rms_norm_sh",
+        alpha_drop: float = 0.0,
+        drop_path_rate: float = 0.0,
+        *,
+        param_dtype: Dtype = jnp.float32,
+        rngs: nnx.Rngs,
+    ):
+        self.norm_1 = get_layernorm_layer(
+            norm_type, lmax=mapping_coeffs.lmax, num_channels=sphere_channels,
+            param_dtype=param_dtype, rngs=rngs,
+        )
+
+        self.graph_attn = SO2EquivariantGraphAttention(
+            sphere_channels=sphere_channels,
+            hidden_channels=attn_hidden_channels,
+            num_heads=num_heads,
+            attn_alpha_channels=attn_alpha_channels,
+            attn_value_channels=attn_value_channels,
+            output_channels=sphere_channels,
+            so3_rotation=so3_rotation,
+            mapping_coeffs=mapping_coeffs,
+            so3_grid=so3_grid,
+            num_species=num_species,
+            edge_channels_list=edge_channels_list,
+            use_atom_edge_embedding=use_atom_edge_embedding,
+            use_m_share_rad=use_m_share_rad,
+            use_attn_renorm=use_attn_renorm,
+            use_gate_act=use_gate_act,
+            use_sep_s2_act=use_sep_s2_act,
+            alpha_drop=alpha_drop,
+            param_dtype=param_dtype,
+            rngs=rngs,
+        )
+
+        self.drop_path = (
+            GraphDropPath(drop_path_rate) if drop_path_rate > 0.0 else None
+        )
+
+        self.norm_2 = get_layernorm_layer(
+            norm_type, lmax=mapping_coeffs.lmax, num_channels=sphere_channels,
+            param_dtype=param_dtype, rngs=rngs,
+        )
+
+        self.ffn = FeedForwardNetwork(
+            sphere_channels=sphere_channels,
+            hidden_channels=ffn_hidden_channels,
+            output_channels=output_channels,
+            lmax=mapping_coeffs.lmax,
+            so3_grid=so3_grid_lmax,
+            use_gate_act=use_gate_act,
+            use_grid_mlp=use_grid_mlp,
+            use_sep_s2_act=use_sep_s2_act,
+            param_dtype=param_dtype,
+            rngs=rngs,
+        )
+
+        if sphere_channels != output_channels:
+            self.ffn_shortcut = SO3LinearV2(
+                sphere_channels, output_channels, lmax=mapping_coeffs.lmax,
+                param_dtype=param_dtype, rngs=rngs,
+            )
+        else:
+            self.ffn_shortcut = None
+
+    def __call__(
+        self,
+        node_feats: jnp.ndarray,
+        node_species: jnp.ndarray,
+        edge_distances: jnp.ndarray,
+        senders: jnp.ndarray,
+        receivers: jnp.ndarray,
+        n_node: jnp.ndarray,  # for GraphDropPath
+        rngs: nnx.Rngs | None = None,
+    ):
+        # Attention block
+        node_feats_res = node_feats
+        node_feats = self.norm_1(node_feats)
+        node_feats = self.graph_attn(
+            node_feats, node_species, edge_distances, senders, receivers, rngs
+        )
+
+        if self.drop_path is not None:
+            node_feats = self.drop_path(node_feats, n_node, rngs=rngs)
+
+        node_feats = node_feats + node_feats_res
+
+        # FFN block
+        node_feats_res = node_feats
+        node_feats = self.norm_2(node_feats)
+        node_feats = self.ffn(node_feats)
+
+        if self.drop_path is not None:
+            node_feats = self.drop_path(node_feats, n_node, rngs=rngs)
+
+        if self.ffn_shortcut is not None:
+            node_feats_res = self.ffn_shortcut(node_feats_res)
+
+        node_feats = node_feats + node_feats_res
+
+        return node_feats

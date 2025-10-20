@@ -17,6 +17,7 @@
 # limitations under the License.
 
 from collections.abc import Callable
+from functools import partial
 
 import e3nn_jax as e3nn
 from flax import nnx
@@ -92,6 +93,8 @@ class Mace(ForceModel):
             num_species = len(self.dataset_info.atomic_energies_map)
 
         radial_envelope_fun = get_radial_envelope_fn(self.config.radial_envelope)
+        if self.config.radial_envelope == "polynomial_envelope":
+            radial_envelope_fun = partial(radial_envelope_fun, p=self.config.polymomial_degree)
 
         node_symmetry = self.config.node_symmetry
         if node_symmetry is None:
@@ -137,6 +140,8 @@ class Mace(ForceModel):
         node_species: jnp.ndarray,
         senders: jnp.ndarray,
         receivers: jnp.ndarray,
+        _n_node: jnp.ndarray, # Nel version of pyg.Data.batch, not used
+        _rngs: nnx.Rngs | None = None, # Rngs for dropout, None for eval, not used
     ) -> jnp.ndarray:
 
         # [n_nodes, num_interactions, num_heads, 0e]
@@ -213,7 +218,7 @@ class MaceBlock(nnx.Module):
 
         # Target of InteractionBlock = source of EquivariantProductBasisBlock
         if not include_pseudotensors:
-            interaction_irreps = e3nn.Irreps.spherical_harmonics(l_max)
+            interaction_irreps = e3nn.Irreps.spherical_harmonics(l_max, p=1)
         else:
             interaction_irreps = e3nn.Irreps(e3nn.Irrep.iterator(l_max))
 

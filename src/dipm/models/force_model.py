@@ -48,6 +48,7 @@ class ForceModel(nnx.Module):
         node_species: jax.Array,
         senders: jax.Array,
         receivers: jax.Array,
+        n_node: jax.Array,
     ) -> jax.Array:
         """Compute node-wise energy summands. This function must be overridden by the
         implementation of `ForceModel`.

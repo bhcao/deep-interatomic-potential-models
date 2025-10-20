@@ -111,6 +111,8 @@ class Visnet(ForceModel):
         node_species: jnp.ndarray,
         senders: jnp.ndarray,
         receivers: jnp.ndarray,
+        _n_node: jnp.ndarray, # Nel version of pyg.Data.batch, not used
+        _rngs: nnx.Rngs | None = None, # Rngs for dropout, None for eval, not used
     ) -> jnp.ndarray:
 
         node_feats, vector_feats = self.visnet_model(

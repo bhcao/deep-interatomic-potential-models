@@ -13,7 +13,6 @@
 # limitations under the License.
 
 import jax
-import e3nn_jax as e3nn
 import jax.numpy as jnp
 from flax import nnx
 from flax.nnx.nn import initializers
@@ -53,7 +52,7 @@ class LiTEN(ForceModel):
 
     Config = LiTENConfig
     config: LiTENConfig
-    
+
     def __init__(
         self,
         config: dict | LiTENConfig,
@@ -93,13 +92,17 @@ class LiTEN(ForceModel):
         node_species: jnp.ndarray,
         senders: jnp.ndarray,
         receivers: jnp.ndarray,
+        _n_node: jnp.ndarray, # Nel version of pyg.Data.batch, not used
+        _rngs: nnx.Rngs | None = None, # Rngs for dropout, None for eval, not used
     ) -> jnp.ndarray:
         # edge connect
         mask = receivers != senders
         edge_distances = safe_norm(edge_vectors, axis=-1) * mask # [n_edges]
         norm_edge_vectors = edge_vectors / jnp.where(mask == 1, edge_distances, 1.0)[:, None]
 
-        node_energies = self.liten_block(norm_edge_vectors, edge_distances, node_species, senders, receivers)
+        node_energies = self.liten_block(
+            norm_edge_vectors, edge_distances, node_species, senders, receivers
+        )
 
         mean = self.dataset_info.scaling_mean
         std = self.dataset_info.scaling_stdev
@@ -166,7 +169,7 @@ class LiTENBlock(nnx.Module):
         node_species: jnp.ndarray,  # [n_nodes] int between 0 and num_species-1
         senders: jnp.ndarray,  # [n_edges]
         receivers: jnp.ndarray,  # [n_edges]
-    ) -> e3nn.IrrepsArray:
+    ) -> jnp.ndarray:
 
         # Embedding Layers
         node_scalar = self.node_embedding(node_species) # [n_nodes, num_channels]

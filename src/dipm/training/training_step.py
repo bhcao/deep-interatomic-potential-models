@@ -80,6 +80,7 @@ class TrainingState:
 def _training_step(
     training_state: TrainingState,
     graph: GraphsTuple,
+    rngs: nnx.Rngs,
     epoch_number: int,
     loss_fun: LossFunction,
     avg_n_graphs_per_batch: float,
@@ -96,14 +97,14 @@ def _training_step(
     acc_steps = training_state.acc_steps
 
     def model_loss_fun(
-        predictor: nnx.Module, ref_graph: GraphsTuple, epoch: int
+        predictor: nnx.Module, ref_graph: GraphsTuple, rngs: nnx.Rngs, epoch: int
     ) -> tuple[Array, dict]:
-        predictions = predictor(ref_graph)
+        predictions = predictor(ref_graph, rngs)
         return loss_fun(predictions, ref_graph, epoch)
 
     # Calculate gradients.
     grad_fun = nnx.grad(model_loss_fun, argnums=0, has_aux=True)
-    grads, aux_info = grad_fun(predictor, graph, epoch_number)
+    grads, aux_info = grad_fun(predictor, graph, rngs, epoch_number)
 
     # Aggregrate over devices.
     if should_parallelize:
@@ -143,7 +144,7 @@ def make_train_step(
     avg_n_graphs_per_batch: float,
     num_gradient_accumulation_steps: int | None = 1,
     should_parallelize: bool = True,
-) -> Callable[[TrainingState, GraphsTuple, int], dict]:
+) -> Callable[[TrainingState, GraphsTuple, nnx.Rngs, int], dict]:
     """
     Create a training step function to optimize model params using gradients.
 

@@ -194,10 +194,12 @@ class TrainingLoop:
                 "Initial evaluation done in %.2f sec.", time.perf_counter() - start_time
             )
 
+        train_rngs = nnx.Rngs(42)
+
         while self.epoch_number < self.config.num_epochs:
             self.epoch_number += 1
             t_before_train = time.perf_counter()
-            self._run_training_epoch()
+            self._run_training_epoch(train_rngs)
             logger.debug(
                 "Parameter updates of epoch %s done, running evaluation next.",
                 self.epoch_number,
@@ -217,7 +219,7 @@ class TrainingLoop:
 
         logger.info("Training loop completed.")
 
-    def _run_training_epoch(self) -> None:
+    def _run_training_epoch(self, rngs: nnx.Rngs) -> None:
         self.force_field.train()
         start_time = time.perf_counter()
         metrics = []
@@ -225,7 +227,9 @@ class TrainingLoop:
         for batch in self.train_dataset:
             if self._should_unreplicate_train_batches:
                 batch = flax.jax_utils.unreplicate(batch)
-            _metrics = self.training_step(self.training_state, batch, self.epoch_number)
+            _metrics = self.training_step(
+                self.training_state, batch, rngs, self.epoch_number
+            )
             metrics.append(jax.device_get(_metrics))
 
         epoch_time_in_seconds = time.perf_counter() - start_time
