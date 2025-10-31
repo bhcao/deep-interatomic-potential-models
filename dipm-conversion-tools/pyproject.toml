@@ -1,0 +1,79 @@
+[project]
+name = "dipm_cvt"
+version = "0.0.1"
+description = "Dataset and model file conversion tools for DIPM"
+license = "Apache 2.0"
+authors = [
+    {name = "Cao Bohan", email = "caobohan@mail.nankai.edu.cn"},
+]
+readme = "README.md"
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Science/Research",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3.10",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "License :: OSI Approved :: Apache Software License",
+]
+requires-python = ">=3.10,<=3.13"
+dependencies = [
+    "numpy (>=1.26.0)",
+    "h5py (>=3.12.1)",
+    "tdqm (>=0.0.1)",
+]
+
+[project.optional-dependencies]
+lmdb = [
+    "lmdb (>=1.5.0)",
+    "torch_geometric (>=2.0.0)",
+    "orjson (>=3.10.0)",
+]
+ase = [
+    "ase (>=3.23.0)",
+]
+web = [
+    "requests (>=2.0.0)",
+]
+gdrive = [
+    "gdown (>=4.0.0)",
+]
+hf = [
+    "huggingface-hub (>=0.24.0)",
+]
+openqdc = [
+    "openqdc",
+]
+all = [
+    "lmdb (>=1.5.0)",
+    "torch_geometric (>=2.0.0)",
+    "orjson (>=3.10.0)",
+    "ase (>=3.23.0)",
+    "huggingface-hub (>=0.24.0)",
+    "openqdc",
+    "requests (>=2.0.0)",
+    "gdown (>=4.0.0)",
+]
+
+[project.scripts]
+dipm-cvt-cli = "dipm_cvt.cli.main:main"
+
+[tool.poetry.urls]
+"Homepage" = "https://github.com/bhcao/deep-interatomic-potential-models"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^7.4.0"
+pytest-cov = "^4.1.0"
+black = "24.2.0"
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.isort]
+profile = "black"
+
+[tool.coverage.report]
+include_namespace_packages = true

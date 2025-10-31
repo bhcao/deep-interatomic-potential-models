@@ -50,6 +50,33 @@ def _count_parameters(model: nnx.Module) -> int:
     return sum(x.size for x in jax.tree_util.tree_leaves(nnx.state(model)))
 
 
+class _TrainingLog:
+    def __init__(self, num_steps: int):
+        self.num_steps = num_steps
+        self.last_log_step = 0
+        self.metrics: list[dict] = []
+        self.start_time = time.perf_counter()
+
+    def append(self, metrics: dict) -> None:
+        '''Appends metrics of a training.'''
+        self.metrics.append(metrics)
+        self.num_steps += 1
+
+    def get(self):
+        '''Returns the metrics of the training.'''
+        end_time = time.perf_counter()
+        steps = self.num_steps - self.last_log_step
+        time_per_step = (end_time - self.start_time) / steps
+        metrics = {}
+        for metric_name in self.metrics[0].keys():
+            metrics[metric_name] = np.mean([m[metric_name] for m in self.metrics])
+        # Update
+        self.last_log_step = self.num_steps
+        self.start_time = end_time
+        self.metrics = []
+        return metrics, time_per_step
+
+
 class TrainingLoop:
     """Training loop class.
 
@@ -99,11 +126,8 @@ class TrainingLoop:
         self.should_parallelize = should_parallelize
 
         self.train_dataset = train_dataset
-        self.validation_dataset = (
-            validation_dataset
-            if config.eval_num_graphs is None
-            else validation_dataset.subset(config.eval_num_graphs)
-        )
+        self.validation_dataset = validation_dataset
+
         self.total_num_graphs, self.total_num_nodes = (
             self._get_total_number_of_graphs_and_nodes_in_dataset(self.train_dataset)
         )
@@ -194,10 +218,14 @@ class TrainingLoop:
                 "Initial evaluation done in %.2f sec.", time.perf_counter() - start_time
             )
 
+        train_rngs = nnx.Rngs(42)
+
+        log = _TrainingLog(self.epoch_number * self.steps_per_epoch)
         while self.epoch_number < self.config.num_epochs:
             self.epoch_number += 1
+            self.io_handler.log(LogCategory.EPOCH_START, {}, self.epoch_number)
             t_before_train = time.perf_counter()
-            self._run_training_epoch()
+            self._run_training_epoch(train_rngs, log)
             logger.debug(
                 "Parameter updates of epoch %s done, running evaluation next.",
                 self.epoch_number,
@@ -217,21 +245,22 @@ class TrainingLoop:
 
         logger.info("Training loop completed.")
 
-    def _run_training_epoch(self) -> None:
+    def _run_training_epoch(self, rngs: nnx.Rngs, log: _TrainingLog) -> None:
         self.force_field.train()
-        start_time = time.perf_counter()
-        metrics = []
 
         for batch in self.train_dataset:
             if self._should_unreplicate_train_batches:
                 batch = flax.jax_utils.unreplicate(batch)
-            _metrics = self.training_step(self.training_state, batch, self.epoch_number)
-            metrics.append(jax.device_get(_metrics))
+            _metrics = self.training_step(
+                self.training_state, batch, rngs, self.epoch_number
+            )
+            log.append(jax.device_get(_metrics))
 
-        epoch_time_in_seconds = time.perf_counter() - start_time
-        self._log_after_training_epoch(
-            metrics, self.epoch_number, epoch_time_in_seconds
-        )
+            if log.num_steps % self.config.log_per_steps == 0:
+                metrics, time_per_step = log.get()
+                self._log_after_training_steps(
+                    metrics, self.epoch_number, time_per_step, log.num_steps
+                )
 
     def _run_evaluation(self) -> None:
         devices = jax.devices() if self.should_parallelize else None
@@ -379,16 +408,13 @@ class TrainingLoop:
             return int(self.training_state.num_steps[0].squeeze().block_until_ready())
         return int(self.training_state.num_steps.squeeze().block_until_ready())
 
-    def _log_after_training_epoch(
+    def _log_after_training_steps(
         self,
-        metrics: list[dict[str, np.ndarray]],
+        metrics: dict[str, np.ndarray],
         epoch_number: int,
-        epoch_time_in_seconds: float,
+        time_per_step: float,
+        num_steps: int,
     ) -> None:
-        _metrics = {}
-        for metric_name in metrics[0].keys():
-            _metrics[metric_name] = np.mean([m[metric_name] for m in metrics])
-
         try:
             opt_hyperparams = jax.device_get(
                 self.training_state.optimizer.opt_state.hyperparams
@@ -396,18 +422,15 @@ class TrainingLoop:
             if self.should_parallelize:
                 opt_hyperparams = flax.jax_utils.unreplicate(opt_hyperparams)
             if self.extended_metrics:
-                _metrics["learning_rate"] = float(opt_hyperparams["lr"])
+                metrics["learning_rate"] = float(opt_hyperparams["lr"])
         except AttributeError:
             pass
 
-        _metrics["runtime_in_seconds"] = epoch_time_in_seconds
-        if self.extended_metrics:
-            _metrics["nodes_per_second"] = self.total_num_nodes / epoch_time_in_seconds
-            _metrics["graphs_per_second"] = (
-                self.total_num_graphs / epoch_time_in_seconds
-            )
+        metrics["steps_in_total"] = num_steps
+        metrics["seconds_per_step"] = time_per_step
+        # TODO(bhcao): Add more extended_metrics
 
-        self.io_handler.log(LogCategory.TRAIN_METRICS, _metrics, epoch_number)
+        self.io_handler.log(LogCategory.TRAIN_METRICS, metrics, epoch_number)
 
         logger.debug(
             "Total number of steps after epoch %s: %s",

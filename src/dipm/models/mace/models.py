@@ -30,8 +30,9 @@ from dipm.layers import (
     Linear,
     FullyConnectedTensorProduct,
     RadialEmbeddingLayer,
+    RadialEnvelope,
     get_radial_basis_fn,
-    get_radial_envelope_fn,
+    get_radial_envelope_cls,
 )
 from dipm.models.mace.blocks import (
     LinearNodeEmbeddingLayer,
@@ -91,7 +92,11 @@ class Mace(ForceModel):
         if num_species is None:
             num_species = len(self.dataset_info.atomic_energies_map)
 
-        radial_envelope_fun = get_radial_envelope_fn(self.config.radial_envelope)
+        radial_envelope_cls = get_radial_envelope_cls(self.config.radial_envelope)
+        if self.config.radial_envelope == RadialEnvelope.POLYNOMIAL:
+            radial_envelope_fun = radial_envelope_cls(r_max, exponent=self.config.polymomial_degree)
+        else:
+            radial_envelope_fun = radial_envelope_cls(r_max)
 
         node_symmetry = self.config.node_symmetry
         if node_symmetry is None:
@@ -133,11 +138,13 @@ class Mace(ForceModel):
 
     def __call__(
         self,
-        edge_vectors: jnp.ndarray,
-        node_species: jnp.ndarray,
-        senders: jnp.ndarray,
-        receivers: jnp.ndarray,
-    ) -> jnp.ndarray:
+        edge_vectors: jax.Array,
+        node_species: jax.Array,
+        senders: jax.Array,
+        receivers: jax.Array,
+        _n_node: jax.Array, # Nel version of pyg.Data.batch, not used
+        _rngs: nnx.Rngs | None = None, # Rngs for dropout, None for eval, not used
+    ) -> jax.Array:
 
         # [n_nodes, num_interactions, num_heads, 0e]
         contributions = self.mace_block(edge_vectors, node_species, senders, receivers)
@@ -164,8 +171,8 @@ class MaceBlock(nnx.Module):
         readout_mlp_irreps: e3nn.Irreps,  # Hidden irreps of the MLP in last readout, default 16x0e
         avg_num_neighbors: float,
         num_species: int,
-        radial_basis: Callable[[jnp.ndarray], jnp.ndarray],
-        radial_envelope: Callable[[jnp.ndarray], jnp.ndarray],
+        radial_basis: Callable[[jax.Array], jax.Array],
+        radial_envelope: Callable[[jax.Array], jax.Array],
         num_channels: int,
         num_bessel: int = 8,
         avg_r_min: float = None,
@@ -213,7 +220,7 @@ class MaceBlock(nnx.Module):
 
         # Target of InteractionBlock = source of EquivariantProductBasisBlock
         if not include_pseudotensors:
-            interaction_irreps = e3nn.Irreps.spherical_harmonics(l_max)
+            interaction_irreps = e3nn.Irreps.spherical_harmonics(l_max, p=1)
         else:
             interaction_irreps = e3nn.Irreps(e3nn.Irrep.iterator(l_max))
 
@@ -253,10 +260,10 @@ class MaceBlock(nnx.Module):
     def __call__(
         self,
         edge_vectors: e3nn.IrrepsArray,  # [n_edges, 3]
-        node_species: jnp.ndarray,  # [n_nodes] int between 0 and num_species-1
-        senders: jnp.ndarray,  # [n_edges]
-        receivers: jnp.ndarray,  # [n_edges]
-        node_mask: jnp.ndarray | None = None,  # [n_nodes] only used for profiling
+        node_species: jax.Array,  # [n_nodes] int between 0 and num_species-1
+        senders: jax.Array,  # [n_edges]
+        receivers: jax.Array,  # [n_edges]
+        node_mask: jax.Array | None = None,  # [n_nodes] only used for profiling
     ) -> e3nn.IrrepsArray:
         assert edge_vectors.ndim == 2 and edge_vectors.shape[1] == 3
         assert node_species.ndim == 1
@@ -432,12 +439,12 @@ class MaceLayer(nnx.Module):
         self,
         edge_vectors: e3nn.IrrepsArray,  # [n_edges, 3]
         node_feats: e3nn.IrrepsArray,  # [n_nodes, irreps]
-        node_species: jnp.ndarray,  # [n_nodes] int between 0 and num_species-1
-        radial_embeddings: jnp.ndarray,  # [n_edges, radial_embedding_dim]
-        senders: jnp.ndarray,  # [n_edges]
-        receivers: jnp.ndarray,  # [n_edges]
-        node_mask: jnp.ndarray | None = None,  # [n_nodes] only used for profiling
-        edge_species_feat: jnp.ndarray | None = None,  # [n_edges, species_embedding_dim * 3]
+        node_species: jax.Array,  # [n_nodes] int between 0 and num_species-1
+        radial_embeddings: jax.Array,  # [n_edges, radial_embedding_dim]
+        senders: jax.Array,  # [n_edges]
+        receivers: jax.Array,  # [n_edges]
+        node_mask: jax.Array | None = None,  # [n_nodes] only used for profiling
+        edge_species_feat: jax.Array | None = None,  # [n_edges, species_embedding_dim * 3]
     ):
         identity = jnp.eye(self.num_species)
         node_attr = e3nn.IrrepsArray(self.num_species * e3nn.Irreps("0e"), identity[node_species])

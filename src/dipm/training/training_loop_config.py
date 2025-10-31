@@ -23,6 +23,8 @@ class TrainingLoopConfig(pydantic.BaseModel):
     """Pydantic config holding all settings related to the
     :class:`~dipm.training.training_loop.TrainingLoop` class.
 
+    Use `valid_num_to_load` instead of `eval_num_graphs`.
+
     Attributes:
         num_epochs: Number of epoch to run.
         num_gradient_accumulation_steps: Number of gradient steps to accumulate before
@@ -30,16 +32,14 @@ class TrainingLoopConfig(pydantic.BaseModel):
         ema_decay: The EMA decay rate, by default set to 0.99.
         use_ema_params_for_eval: Whether to use the EMA parameters for evaluation,
                                  set to ``True`` by default.
-        eval_num_graphs: Number of validation set graphs to evaluate on. By default,
-                         this is set to ``None`` which means to evaluate on
-                         all the available graphs.
         run_eval_at_start: Whether to run an evaluation on the validation set before
                            we start the first epoch. By default, it is set to ``True``.
+        log_per_steps: Number of steps to log the metrics. Default to 10000.
     """
 
     num_epochs: PositiveInt
     num_gradient_accumulation_steps: PositiveInt = 1
     ema_decay: EMADecay = 0.99
     use_ema_params_for_eval: bool = True
-    eval_num_graphs: PositiveInt | None = None
     run_eval_at_start: bool = True
+    log_per_steps: PositiveInt = 10000

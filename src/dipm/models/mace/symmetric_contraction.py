@@ -20,6 +20,7 @@ import e3nn_jax as e3nn
 from flax import nnx
 from flax.typing import Dtype
 from flax.nnx.nn import initializers
+import jax
 import jax.numpy as jnp
 from jax import vmap
 
@@ -66,9 +67,9 @@ class Contraction(nnx.Module):
     def __call__(
         self,
         node_feats: e3nn.IrrepsArray,
-        index: jnp.ndarray,
-        out: dict[e3nn.Irrep, jnp.ndarray],
-    ) -> dict[e3nn.Irrep, jnp.ndarray]:
+        index: jax.Array,
+        out: dict[e3nn.Irrep, jax.Array],
+    ) -> dict[e3nn.Irrep, jax.Array]:
         out_new = {}
         if self.off_diagonal:
             x_ = jnp.roll(node_feats.array, A025582[self.order - 1])
@@ -150,7 +151,7 @@ class SymmetricContraction(nnx.Module):
         return out
 
     def __call__(
-        self, node_feats: e3nn.IrrepsArray, index: jnp.ndarray
+        self, node_feats: e3nn.IrrepsArray, index: jax.Array
     ) -> e3nn.IrrepsArray:
         """Power expansion of node_feats, mapped through index-wise weights.
 
@@ -163,7 +164,7 @@ class SymmetricContraction(nnx.Module):
         the node features.
         """
 
-        def fn(features: e3nn.IrrepsArray, index: jnp.ndarray):
+        def fn(features: e3nn.IrrepsArray, index: jax.Array):
             '''
             This operation is parallel on the feature dimension (but each feature has its own parameters)
             This operation is an efficient implementation of

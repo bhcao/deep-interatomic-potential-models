@@ -4,15 +4,12 @@
 
 ## 👀 Overview
 
-*mlip* is a Python library for training and deploying
-**Deep Interatomic Potentials Models (DIPM)** written in JAX. It provides
-the following functionality:
-- Multiple model architectures (for now: MACE, NequIP, ViSNet and LiTEN)
+*dipm* is a enhancement of [MLIP](https://github.com/instadeepai/mlip) standing for **Deep Interatomic Potentials Models (DIPM)**. It provides the following functionality:
+- Multiple NNX model architectures (for now: MACE, NequIP, ViSNet, LiTEN, EquiformerV2 and UMA)
 - Dataset loading and preprocessing
 - Training and fine-tuning MLIP models
 - Batched inference with trained MLIP models
-- MD simulations with MLIP models using multiple simulation backends (for now: JAX-MD and ASE)
-- Energy minimizations with MLIP models using the same simulation backends as for MD.
+- MD simulations and energy minimizations with JAX-MD backend.
 
 The purpose of the library is to provide users with a toolbox
 to deal with MLIP models in true end-to-end fashion.
@@ -35,16 +32,19 @@ This repository currently supports implementations of:
 - [MACE](https://arxiv.org/abs/2206.07697)
 - [NequIP](https://www.nature.com/articles/s41467-022-29939-5)
 - [ViSNet](https://www.nature.com/articles/s41467-023-43720-2)
+- [LiTEN](https://arxiv.org/abs/2507.00884)
+- [EquiformerV2](https://openreview.net/forum?id=mCOBKZmrzD)
+- [UMA](https://arxiv.org/abs/2506.23971)
 
 As the backend for equivariant operations, the current version of the code relies
 on the [e3nn](https://zenodo.org/records/6459381) library.
 
 ## 📦 Installation
 
-*mlip* can be installed via pip like this:
+*dipm* can be installed via pip like this:
 
 ```bash
-pip install mlip
+pip install dipm
 ```
 
 However, this command **only installs the regular CPU version** of JAX.
@@ -56,7 +56,7 @@ more information.
 At time of release, the following install command is supported:
 
 ```bash
-pip install -U "jax[cuda12]==0.4.33"
+pip install -U "jax[cuda12]"
 ```
 
 Note that using the TPU version of *jaxlib* is, in principle, also supported by
@@ -77,6 +77,10 @@ Furthermore, note that among our library dependencies we have pinned the version
 for *jaxlib*, *matscipy*, and *orbax-checkpoint* to one specific version only to
 prioritize reliability, however, we plan to allow for a more flexible definition of
 our dependencies in upcoming releases.
+
+## 📚 Dataset preparation
+
+We only support HDF5 format datasets (compatible with HDF5 used in [MACE](https://github.com/ACEsuit/mace)). We provided a dataset conversion toolkit [DIPM-Cvt](./dipm-conversion-tools) for this purpose. We recommend to install it in a different environment than *dipm* to avoid conflicts. We provided a command-line interface `dipm-cvt-cli` for user-friendly usage.
 
 ## ⚡ Examples
 
@@ -99,18 +103,7 @@ pip install notebook && jupyter notebook
 The installation of *mlip* itself is included within the notebooks. We recommend to
 run these notebooks with GPU acceleration enabled.
 
-Alternatively, we provide a `Dockerfile` in this repository that you can use to
-run the tutorial notebooks. This can be achieved by executing the following lines
-from any directory that contains the downloaded `Dockerfile`:
-
-```bash
-docker build . -t mlip_tutorials
-docker run -p 8888:8888 --gpus all mlip_tutorials
-```
-
-Note that this will only work on machines with NVIDIA GPUs.
-Once running, you can access the Jupyter notebook server by clicking on the URL
-displayed in the console of the form "http[]()://127.0.0.1:8888/tree?token=abcdef...".
+For coding-free training, use `python scripts/train.py scripts/train.yaml` and adapt the config file (`scripts/train.yaml`) to your needs.
 
 ## 🤗 Pre-trained models (via HuggingFace)
 
@@ -167,10 +160,9 @@ We would like to acknowledge beta testers for this library: Isabel Wilkinson,
 Nick Venanzi, Hassan Sirelkhatim, Leon Wehrhan, Sebastien Boyer, Massimo Bortone,
 Scott Cameron, Louis Robinson, Tom Barrett, and Alex Laterre.
 
-## 📚 Citing our work
+## 📚 Citing
 
-We kindly request that you to cite [our white paper](https://arxiv.org/abs/2505.22397)
-when using this library:
+Here is the citing entry of original repository [MILP](https://arxiv.org/abs/2505.22397):
 
 C. Brunken, O. Peltre, H. Chomet, L. Walewski, M. McAuliffe, V. Heyraud,
 S. Attias, M. Maarand, Y. Khanfir, E. Toledo, F. Falcioni, M. Bluntzer,

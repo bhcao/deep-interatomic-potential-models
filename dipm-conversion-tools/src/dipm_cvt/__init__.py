@@ -1,4 +1,4 @@
-# Copyright 2025 InstaDeep Ltd
+# Copyright 2025 Cao Bohan
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,9 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from dipm.data.chemical_systems_readers.chemical_systems_reader import (
-    ChemicalSystemsReader,
-)
-from dipm.data.chemical_systems_readers.combined_reader import CombinedReader
-from dipm.data.chemical_systems_readers.extxyz_reader import ExtxyzReader
-from dipm.data.chemical_systems_readers.hdf5_reader import Hdf5Reader
+import importlib.metadata
+
+__version__ = importlib.metadata.version("dipm_cvt")

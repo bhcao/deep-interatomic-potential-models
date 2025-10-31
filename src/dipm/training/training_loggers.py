@@ -144,8 +144,10 @@ def log_metrics_to_line(
         to_log_modified = {"loss": to_log_copy.pop("loss")}
         to_log_modified.update(to_log_copy)
 
-        logger.info("------------ Epoch %s ------------", epoch_number)
         logger.info("%-11s %s", "Training:", _metrics_to_str(to_log_modified))
+
+    elif category == LogCategory.EPOCH_START:
+        logger.info("------------ Epoch %s ------------", epoch_number)
 
     elif category == LogCategory.EVAL_METRICS:
         logger.info("Validation: %s", _metrics_to_str(_to_log))

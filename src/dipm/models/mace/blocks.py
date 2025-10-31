@@ -51,7 +51,7 @@ class LinearNodeEmbeddingLayer(nnx.Module):
             )
         )
 
-    def __call__(self, node_specie: jnp.ndarray) -> e3nn.IrrepsArray:
+    def __call__(self, node_specie: jax.Array) -> e3nn.IrrepsArray:
         irreps_out = self.irreps_out
 
         w = (1 / jnp.sqrt(self.num_species)) * self.embeddings.value
@@ -163,7 +163,7 @@ class EquivariantProductBasisBlock(nnx.Module):
         )
 
     def node_gating(
-        self, node_feats: e3nn.IrrepsArray, node_species: jnp.ndarray
+        self, node_feats: e3nn.IrrepsArray, node_species: jax.Array
     ) -> e3nn.IrrepsArray:
         node_scalars = node_feats.filter("0e").array
         w = self.gate_kernel.value[node_species]
@@ -174,7 +174,7 @@ class EquivariantProductBasisBlock(nnx.Module):
     def __call__(
         self,
         node_feats: e3nn.IrrepsArray,  # [n_nodes, feature * irreps]
-        node_species: jnp.ndarray,  # [n_nodes, ] int
+        node_species: jax.Array,  # [n_nodes, ] int
     ) -> e3nn.IrrepsArray:
         node_feats = node_feats.mul_to_axis().remove_zero_chunks()
         node_feats = self.contraction(node_feats, node_species)
@@ -214,10 +214,9 @@ class MessagePassingConvolution(nnx.Module):
         out_irreps = out_irreps.regroup()
 
         self.mix = MultiLayerPerceptron(
-            (radial_embedding_dim,) + 3 * (64,) + (out_irreps.num_irreps,),
+            [radial_embedding_dim] + 3 * [64] + [out_irreps.num_irreps],
             activation,
             gradient_normalization=1.0,
-            output_activation=False,
             param_dtype=param_dtype,
             rngs=rngs,
         )
@@ -225,10 +224,9 @@ class MessagePassingConvolution(nnx.Module):
         self.mix_species = None
         if species_embedding_dim is not None:
             self.mix_species = MultiLayerPerceptron(
-                (3*species_embedding_dim,) + 3 * (64,) + (out_irreps.num_irreps,),
+                [3*species_embedding_dim] + 3 * [64] + [out_irreps.num_irreps],
                 activation,
                 gradient_normalization=1.0,
-                output_activation=False,
                 use_bias=True,
                 param_dtype=param_dtype,
                 rngs=rngs,
@@ -240,10 +238,10 @@ class MessagePassingConvolution(nnx.Module):
         self,
         vectors: e3nn.IrrepsArray,  # [n_edges, 3]
         node_feats: e3nn.IrrepsArray,  # [n_nodes, irreps]
-        radial_embedding: jnp.ndarray,  # [n_edges, radial_embedding_dim]
-        senders: jnp.ndarray,  # [n_edges, ]
-        receivers: jnp.ndarray,  # [n_edges, ]
-        edge_species_feat: jnp.ndarray | None = None,  # [n_edges, species_embedding_dim * 3]
+        radial_embedding: jax.Array,  # [n_edges, radial_embedding_dim]
+        senders: jax.Array,  # [n_edges, ]
+        receivers: jax.Array,  # [n_edges, ]
+        edge_species_feat: jax.Array | None = None,  # [n_edges, species_embedding_dim * 3]
     ) -> e3nn.IrrepsArray:
         assert node_feats.ndim == 2
         if self.mix_species is not None:
@@ -312,10 +310,10 @@ class InteractionBlock(nnx.Module):
         self,
         edge_vectors: e3nn.IrrepsArray,  # [n_edges, 3]
         node_feats: e3nn.IrrepsArray,  # [n_nodes, irreps]
-        radial_embeddings: jnp.ndarray,  # [n_edges, radial_embedding_dim]
-        senders: jnp.ndarray,  # [n_edges, ]
-        receivers: jnp.ndarray,  # [n_edges, ]
-        edge_species_feat: jnp.ndarray | None = None,  # [n_edges, species_embedding_dim * 3]
+        radial_embeddings: jax.Array,  # [n_edges, radial_embedding_dim]
+        senders: jax.Array,  # [n_edges, ]
+        receivers: jax.Array,  # [n_edges, ]
+        edge_species_feat: jax.Array | None = None,  # [n_edges, species_embedding_dim * 3]
     ) -> tuple[e3nn.IrrepsArray, e3nn.IrrepsArray]:
         assert node_feats.ndim == 2
         assert edge_vectors.ndim == 2

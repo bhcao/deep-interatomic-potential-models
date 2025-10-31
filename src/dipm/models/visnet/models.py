@@ -107,11 +107,13 @@ class Visnet(ForceModel):
 
     def __call__(
         self,
-        edge_vectors: jnp.ndarray,
-        node_species: jnp.ndarray,
-        senders: jnp.ndarray,
-        receivers: jnp.ndarray,
-    ) -> jnp.ndarray:
+        edge_vectors: jax.Array,
+        node_species: jax.Array,
+        senders: jax.Array,
+        receivers: jax.Array,
+        _n_node: jax.Array, # Nel version of pyg.Data.batch, not used
+        _rngs: nnx.Rngs | None = None, # Rngs for dropout, None for eval, not used
+    ) -> jax.Array:
 
         node_feats, vector_feats = self.visnet_model(
             edge_vectors, node_species, senders, receivers
@@ -193,10 +195,10 @@ class VisnetBlock(nnx.Module):
 
     def __call__(
         self,
-        edge_vectors: jnp.ndarray,  # [n_edges, 3]
-        node_species: jnp.ndarray,  # [n_nodes] int between 0 and num_species-1
-        senders: jnp.ndarray,  # [n_edges]
-        receivers: jnp.ndarray,  # [n_edges]
+        edge_vectors: jax.Array,  # [n_edges, 3]
+        node_species: jax.Array,  # [n_nodes] int between 0 and num_species-1
+        senders: jax.Array,  # [n_edges]
+        receivers: jax.Array,  # [n_edges]
     ) -> e3nn.IrrepsArray:
         assert edge_vectors.ndim == 2 and edge_vectors.shape[1] == 3
         assert node_species.ndim == 1
@@ -343,15 +345,15 @@ class VisnetLayer(nnx.Module):
 
     def message_fn(
         self,
-        q_i: jnp.ndarray,
-        k_j: jnp.ndarray,
-        v_j: jnp.ndarray,
-        vec_j: jnp.ndarray,
-        dk: jnp.ndarray,
-        dv: jnp.ndarray,
-        r_ij: jnp.ndarray,
-        d_ij: jnp.ndarray,
-    ) -> tuple[jnp.ndarray, jnp.ndarray]:
+        q_i: jax.Array,
+        k_j: jax.Array,
+        v_j: jax.Array,
+        vec_j: jax.Array,
+        dk: jax.Array,
+        dv: jax.Array,
+        r_ij: jax.Array,
+        d_ij: jax.Array,
+    ) -> tuple[jax.Array, jax.Array]:
         attn = (q_i * k_j * dk).sum(axis=-1)
         attn = self.attn_act(attn) * self.cutoff_fn(r_ij)[:, None]
 
@@ -365,11 +367,11 @@ class VisnetLayer(nnx.Module):
 
     def edge_update(
         self,
-        vec_i: jnp.ndarray,
-        vec_j: jnp.ndarray,
-        d_ij: jnp.ndarray,
-        f_ij: jnp.ndarray,
-    ) -> jnp.ndarray:
+        vec_i: jax.Array,
+        vec_j: jax.Array,
+        d_ij: jax.Array,
+        f_ij: jax.Array,
+    ) -> jax.Array:
         w1 = self.vector_rejection(self.w_trg_proj(vec_i), d_ij)
         w2 = self.vector_rejection(self.w_src_proj(vec_j), -d_ij)
         w_dot = (w1 * w2).sum(axis=1)
@@ -378,14 +380,14 @@ class VisnetLayer(nnx.Module):
 
     def __call__(
         self,
-        node_feats: jnp.ndarray, # [n_nodes, num_channels]
-        edge_feats: jnp.ndarray, # [n_edges, num_channels]
-        vector_feats: jnp.ndarray, # [n_edges, (lmax + 1) ^ 2 - 1, num_channels]
-        distances: jnp.ndarray,
-        senders: jnp.ndarray,
-        receivers: jnp.ndarray,
-        sh_feats: jnp.ndarray, # [n_edges, (lmax + 1) ^ 2 - 1]
-    ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+        node_feats: jax.Array, # [n_nodes, num_channels]
+        edge_feats: jax.Array, # [n_edges, num_channels]
+        vector_feats: jax.Array, # [n_edges, (lmax + 1) ^ 2 - 1, num_channels]
+        distances: jax.Array,
+        senders: jax.Array,
+        receivers: jax.Array,
+        sh_feats: jax.Array, # [n_edges, (lmax + 1) ^ 2 - 1]
+    ) -> tuple[jax.Array, jax.Array, jax.Array]:
         node_feats = self.layernorm(node_feats)
         vector_feats = self.vec_layernorm(vector_feats)
         # Correspond to Wk, Wq, Wv weights in the paper

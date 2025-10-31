@@ -94,6 +94,7 @@ class LogCategory(Enum):
         TEST_METRICS: Metrics for the test set are logged.
         CLEANUP_AFTER_CKPT_RESTORATION: Allows the logger to clean itself up after a
                                         checkpoint has been restored.
+        EPOCH_START: A separator to indicate the start of an epoch.
     """
 
     BEST_MODEL = 0
@@ -101,6 +102,7 @@ class LogCategory(Enum):
     EVAL_METRICS = 2
     TEST_METRICS = 4
     CLEANUP_AFTER_CKPT_RESTORATION = 3
+    EPOCH_START = 5
 
 
 class TrainingIOHandler:

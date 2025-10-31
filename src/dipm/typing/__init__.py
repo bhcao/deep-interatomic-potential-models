@@ -19,6 +19,4 @@ from dipm.typing.prediction import Prediction
 from dipm.typing.signatures import (
     GraphsTuple,
     LossFunction,
-    ModelParameters,
-    ModelPredictorFun,
 )

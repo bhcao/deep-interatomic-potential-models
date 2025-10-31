@@ -12,12 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import jax
 import jax.numpy as jnp
 
 
 def safe_norm(
-    x: jnp.ndarray, axis: int | None = None, keepdims: bool = False
-) -> jnp.ndarray:
+    x: jax.Array, axis: int | None = None, keepdims: bool = False
+) -> jax.Array:
     """nan-safe norm."""
     x2 = jnp.sum(x**2, axis=axis, keepdims=keepdims)
     return jnp.where(x2 == 0.0, 0.0, jnp.where(x2 == 0, 1.0, x2) ** 0.5)

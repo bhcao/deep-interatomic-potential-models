@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import jax.numpy as jnp
+import jax
 from jax_md.dataclasses import dataclass as jax_compatible_dataclass
 from jax_md.partition import NeighborList
 
@@ -28,11 +28,11 @@ class SystemState:
 class EpisodeLog:
     """Holds the logging information for the currently processed episode."""
 
-    positions: jnp.ndarray
-    forces: jnp.ndarray
-    velocities: jnp.ndarray
-    temperature: jnp.ndarray
-    kinetic_energy: jnp.ndarray
+    positions: jax.Array
+    forces: jax.Array
+    velocities: jax.Array
+    temperature: jax.Array
+    kinetic_energy: jax.Array
 
 
 @jax_compatible_dataclass

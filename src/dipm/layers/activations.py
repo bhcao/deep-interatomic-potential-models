@@ -23,6 +23,17 @@ from flax.typing import Dtype, Initializer
 from flax.nnx.nn import initializers
 
 
+class SmoothLeakyReLU(nnx.Module):
+    '''Smooth Leaky ReLU activation.'''
+    def __init__(self, negative_slope: float = 0.2):
+        self.alpha = negative_slope
+
+    def __call__(self, x):
+        x1 = ((1 + self.alpha) / 2) * x
+        x2 = ((1 - self.alpha) / 2) * x * (2 * nnx.sigmoid(x) - 1)
+        return x1 + x2
+
+
 class BetaSwish(nnx.Module):
     """BetaSwish activation function, a learnable variant of Swish."""
 

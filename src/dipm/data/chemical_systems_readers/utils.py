@@ -13,8 +13,6 @@
 # limitations under the License.
 
 import logging
-from collections.abc import Callable
-from typing import TypeVar
 
 import numpy as np
 
@@ -47,8 +45,8 @@ def _filter_systems_with_unseen_atoms(
             filtered_systems.append(chemical_system)
     if len(filtered_systems) < original_number_systems:
         logger.warning(
-            f"Removed {original_number_systems - len(filtered_systems)} "
-            f"systems due to missing atomic species in the training set."
+            "Removed %s systems due to missing atomic species in the training set.",
+            original_number_systems - len(filtered_systems),
         )
     return filtered_systems
 
@@ -57,6 +55,7 @@ def filter_systems_with_unseen_atoms_and_assign_atomic_species(
     train_systems: ChemicalSystems,
     valid_systems: ChemicalSystems,
     test_systems: ChemicalSystems,
+    z_table: AtomicNumberTable,
 ) -> ChemicalSystemsBySplit:
     """Remove systems with atoms not present in the training set
     and assign atomic species based on the train systems.
@@ -68,15 +67,13 @@ def filter_systems_with_unseen_atoms_and_assign_atomic_species(
                        of a list of ChemicalSystems
         test_systems: Loaded test dataset in the format
                       of a list of ChemicalSystems
+        z_table: The atomic numbers seen in the training set.
 
     Returns:
         The modified/filtered output as a tuple of train, validation and test
         datasets as a list of ``ChemicalSystem`` objects.
     """
     # Filter systems then assign atomic species
-    z_table = AtomicNumberTable(
-        sorted(set(np.concatenate([ts.atomic_numbers for ts in train_systems])))
-    )
     valid_systems = _filter_systems_with_unseen_atoms(valid_systems, z_table)
     test_systems = _filter_systems_with_unseen_atoms(test_systems, z_table)
     _update_atomic_species(train_systems, z_table)
@@ -85,19 +82,29 @@ def filter_systems_with_unseen_atoms_and_assign_atomic_species(
 
     return train_systems, valid_systems, test_systems
 
-
-In = TypeVar("In")
-Out = TypeVar("Out")
-
-
-def apply_flatten(
-    fun: Callable[[In, ...], list[Out]],
-    elements: list[In],
-    *args,
-    **kwargs,
-) -> list[Out]:
-    """Applies a function to each element in a list and flattens the results into
-    a list."""
-    if not elements:
-        return []
-    return [x for elem in elements for x in fun(elem, *args, **kwargs)]
+# ase.chemical_symbols
+CHEMICAL_SYMBOLS = [
+    # 0
+    'X',
+    # 1
+    'H', 'He',
+    # 2
+    'Li', 'Be', 'B', 'C', 'N', 'O', 'F', 'Ne',
+    # 3
+    'Na', 'Mg', 'Al', 'Si', 'P', 'S', 'Cl', 'Ar',
+    # 4
+    'K', 'Ca', 'Sc', 'Ti', 'V', 'Cr', 'Mn', 'Fe', 'Co', 'Ni', 'Cu', 'Zn',
+    'Ga', 'Ge', 'As', 'Se', 'Br', 'Kr',
+    # 5
+    'Rb', 'Sr', 'Y', 'Zr', 'Nb', 'Mo', 'Tc', 'Ru', 'Rh', 'Pd', 'Ag', 'Cd',
+    'In', 'Sn', 'Sb', 'Te', 'I', 'Xe',
+    # 6
+    'Cs', 'Ba', 'La', 'Ce', 'Pr', 'Nd', 'Pm', 'Sm', 'Eu', 'Gd', 'Tb', 'Dy',
+    'Ho', 'Er', 'Tm', 'Yb', 'Lu',
+    'Hf', 'Ta', 'W', 'Re', 'Os', 'Ir', 'Pt', 'Au', 'Hg', 'Tl', 'Pb', 'Bi',
+    'Po', 'At', 'Rn',
+    # 7
+    'Fr', 'Ra', 'Ac', 'Th', 'Pa', 'U', 'Np', 'Pu', 'Am', 'Cm', 'Bk',
+    'Cf', 'Es', 'Fm', 'Md', 'No', 'Lr',
+    'Rf', 'Db', 'Sg', 'Bh', 'Hs', 'Mt', 'Ds', 'Rg', 'Cn', 'Nh', 'Fl', 'Mc',
+    'Lv', 'Ts', 'Og']

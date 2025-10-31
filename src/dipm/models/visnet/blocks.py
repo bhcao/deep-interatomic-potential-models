@@ -30,15 +30,15 @@ class Sphere(nnx.Module):
     def __init__(self, degree: int = 2):
         self.degree = degree
 
-    def __call__(self, edge_vec: jnp.ndarray) -> jnp.ndarray:
+    def __call__(self, edge_vec: jax.Array) -> jax.Array:
         edge_sh = self._spherical_harmonics(
             edge_vec[..., 0], edge_vec[..., 1], edge_vec[..., 2]
         )
         return edge_sh
 
     def _spherical_harmonics(
-        self, x: jnp.ndarray, y: jnp.ndarray, z: jnp.ndarray
-    ) -> jnp.ndarray:
+        self, x: jax.Array, y: jax.Array, z: jax.Array
+    ) -> jax.Array:
         sh_1_0, sh_1_1, sh_1_2 = x, y, z
 
         if self.degree == 1:

@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import jax
 import jax.numpy as jnp
 
 from dipm.data.dataset_info import DatasetInfo
@@ -22,7 +23,7 @@ def get_atomic_energies(
     dataset_info: DatasetInfo,
     atomic_energies_input: str | dict[int, float] | None = None,
     num_species: int | None = None,
-) -> jnp.ndarray:
+) -> jax.Array:
     """Converts an input description of atomic energies into the atomic energies array.
 
     The input description can be many different things. Some of them use the given

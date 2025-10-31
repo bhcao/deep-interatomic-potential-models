@@ -13,7 +13,6 @@
 # limitations under the License.
 
 import jax
-import e3nn_jax as e3nn
 import jax.numpy as jnp
 from flax import nnx
 from flax.nnx.nn import initializers
@@ -53,7 +52,7 @@ class LiTEN(ForceModel):
 
     Config = LiTENConfig
     config: LiTENConfig
-    
+
     def __init__(
         self,
         config: dict | LiTENConfig,
@@ -89,17 +88,20 @@ class LiTEN(ForceModel):
 
     def __call__(
         self,
-        edge_vectors: jnp.ndarray,
-        node_species: jnp.ndarray,
-        senders: jnp.ndarray,
-        receivers: jnp.ndarray,
-    ) -> jnp.ndarray:
+        edge_vectors: jax.Array,
+        node_species: jax.Array,
+        senders: jax.Array,
+        receivers: jax.Array,
+        _n_node: jax.Array, # Nel version of pyg.Data.batch, not used
+        _rngs: nnx.Rngs | None = None, # Rngs for dropout, None for eval, not used
+    ) -> jax.Array:
         # edge connect
-        mask = receivers != senders
-        edge_distances = safe_norm(edge_vectors, axis=-1) * mask # [n_edges]
-        norm_edge_vectors = edge_vectors / jnp.where(mask == 1, edge_distances, 1.0)[:, None]
+        edge_distances = safe_norm(edge_vectors, axis=-1) # [n_edges]
+        norm_edge_vectors = edge_vectors / (edge_distances[:, None] + 1e-8) # ViSNet style
 
-        node_energies = self.liten_block(norm_edge_vectors, edge_distances, node_species, senders, receivers)
+        node_energies = self.liten_block(
+            norm_edge_vectors, edge_distances, node_species, senders, receivers
+        )
 
         mean = self.dataset_info.scaling_mean
         std = self.dataset_info.scaling_stdev
@@ -161,12 +163,12 @@ class LiTENBlock(nnx.Module):
 
     def __call__(
         self,
-        norm_edge_vectors: jnp.ndarray,  # [n_edges, 3]
-        edge_distances: jnp.ndarray, # [n_edges]
-        node_species: jnp.ndarray,  # [n_nodes] int between 0 and num_species-1
-        senders: jnp.ndarray,  # [n_edges]
-        receivers: jnp.ndarray,  # [n_edges]
-    ) -> e3nn.IrrepsArray:
+        norm_edge_vectors: jax.Array,  # [n_edges, 3]
+        edge_distances: jax.Array, # [n_edges]
+        node_species: jax.Array,  # [n_nodes] int between 0 and num_species-1
+        senders: jax.Array,  # [n_edges]
+        receivers: jax.Array,  # [n_edges]
+    ) -> jax.Array:
 
         # Embedding Layers
         node_scalar = self.node_embedding(node_species) # [n_nodes, num_channels]
@@ -280,11 +282,11 @@ class LiTENLayer(nnx.Module):
 
     def edge_update(
         self,
-        node_vector: jnp.ndarray, # [n_nodes, 3, num_channels]
-        senders: jnp.ndarray, # [n_edges]
-        receivers: jnp.ndarray, # [n_edges]
-        norm_edge_vectors: jnp.ndarray, # [n_edges, 3]
-        edge_feats: jnp.ndarray, # [n_edges, num_channels]
+        node_vector: jax.Array, # [n_nodes, 3, num_channels]
+        senders: jax.Array, # [n_edges]
+        receivers: jax.Array, # [n_edges]
+        norm_edge_vectors: jax.Array, # [n_edges, 3]
+        edge_feats: jax.Array, # [n_edges, num_channels]
     ):
         node_vector = self.cross_linear(node_vector)
 
@@ -300,13 +302,13 @@ class LiTENLayer(nnx.Module):
 
     def message_fn(
         self,
-        node_scalar: jnp.ndarray, # [n_nodes, num_channels]
-        node_vector: jnp.ndarray, # [n_nodes, 3, num_channels]
-        senders: jnp.ndarray, # [n_edges]
-        receivers: jnp.ndarray, # [n_edges]
-        edge_distances: jnp.ndarray, # [n_edges]
-        norm_edge_vectors: jnp.ndarray, # [n_edges, 3]
-        edge_feats: jnp.ndarray, # [n_edges, num_channels]
+        node_scalar: jax.Array, # [n_nodes, num_channels]
+        node_vector: jax.Array, # [n_nodes, 3, num_channels]
+        senders: jax.Array, # [n_edges]
+        receivers: jax.Array, # [n_edges]
+        edge_distances: jax.Array, # [n_edges]
+        norm_edge_vectors: jax.Array, # [n_edges, 3]
+        edge_feats: jax.Array, # [n_edges, num_channels]
     ):
         edge_feats = self.act(self.edge_linear(edge_feats)).reshape(-1, self.num_heads, self.head_dim)
         node_scalar = self.node_linear(node_scalar).reshape(-1, self.num_heads, self.head_dim)
@@ -330,8 +332,8 @@ class LiTENLayer(nnx.Module):
 
     def node_update(
         self,
-        node_scalar: jnp.ndarray, # [n_nodes, num_channels]
-        node_vector: jnp.ndarray, # [n_nodes, 3, num_channels]
+        node_scalar: jax.Array, # [n_nodes, num_channels]
+        node_vector: jax.Array, # [n_nodes, 3, num_channels]
     ):
         node_vec1, node_vec2 = jnp.split(self.vec_linear(node_vector), 2, axis=-1)
         vec_tri = jnp.sum(node_vec1 * node_vec2, axis=1)
@@ -350,13 +352,13 @@ class LiTENLayer(nnx.Module):
 
     def __call__(
         self,
-        node_scalar: jnp.ndarray, # [n_nodes, num_channels]
-        node_vector: jnp.ndarray, # [n_nodes, 3, num_channels]
-        senders: jnp.ndarray, # [n_edges]
-        receivers: jnp.ndarray, # [n_edges]
-        edge_distances: jnp.ndarray, # [n_edges]
-        edge_feats: jnp.ndarray, # [n_edges, num_channels]
-        norm_edge_vectors: jnp.ndarray, # [n_edges, 3]
+        node_scalar: jax.Array, # [n_nodes, num_channels]
+        node_vector: jax.Array, # [n_nodes, 3, num_channels]
+        senders: jax.Array, # [n_edges]
+        receivers: jax.Array, # [n_edges]
+        edge_distances: jax.Array, # [n_edges]
+        edge_feats: jax.Array, # [n_edges, num_channels]
+        norm_edge_vectors: jax.Array, # [n_edges, 3]
     ):
         scalar_out = self.layernorm(node_scalar)
         node_vector = self.vec_layernorm(node_vector)

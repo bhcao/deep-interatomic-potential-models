@@ -1,5 +1,14 @@
 # Changelog
 
+## Release 0.0.2
+
+- Adding model architectures: EquiformerV2, UMA
+- Providing tools for downloading, decompressing, splitting, merging and converting
+  LMDB and ExtXYZ datasets to HDF5 datasets, and removing ExtXYZ dataset support
+- Making HDF5 format to be compatible with the format used by MACE library
+- Supporting input of dataset directory, parallel loading, and automatic train/val/test
+  splitting
+
 ## Release 0.0.1
 
 - Adding model architectures: LiTEN

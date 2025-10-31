@@ -22,11 +22,14 @@ import numpy as np
 from tqdm_loggable.auto import tqdm
 
 from dipm.data.chemical_system import ChemicalSystem
-from dipm.data.chemical_systems_readers import CombinedReader
-from dipm.data.chemical_systems_readers.chemical_systems_reader import (
-    ChemicalSystemsReader,
+from dipm.data.chemical_systems_readers.hdf5_dataset import create_datasets
+from dipm.data.chemical_systems_readers.utils import (
+    filter_systems_with_unseen_atoms_and_assign_atomic_species as filter_fn,
 )
-from dipm.data.configs import GraphDatasetBuilderConfig
+from dipm.data.configs import (
+    GraphDatasetBuilderConfig,
+    ChemicalSystemsReaderConfig,
+)
 from dipm.data.dataset_info import DatasetInfo, compute_dataset_info_from_graphs
 from dipm.data.helpers.atomic_number_table import AtomicNumberTable
 from dipm.data.helpers.data_prefetching import (
@@ -43,10 +46,6 @@ GraphDatasetsOrPrefetchedIterators: TypeAlias = (
 )
 
 logger = logging.getLogger("dipm")
-
-
-class DatasetsHaveNotBeenProcessedError(Exception):
-    """Exception to be raised if dataset info is not available yet."""
 
 
 class DevicesNotProvidedForPrefetchingError(Exception):
@@ -66,22 +65,24 @@ class GraphDatasetBuilder:
     dataset info dataclass.
     """
 
+    ReaderConfig = ChemicalSystemsReaderConfig
     Config = GraphDatasetBuilderConfig
 
     def __init__(
         self,
-        reader: ChemicalSystemsReader | CombinedReader,
+        reader_config: ChemicalSystemsReaderConfig,
         dataset_config: GraphDatasetBuilderConfig,
     ):
         """Constructor.
 
         Args:
+            reader_config: The pydantic config for the chemical systems reader.
             reader: The data reader that loads a dataset into
                          :class:`~dipm.data.chemical_system.ChemicalSystem`
                          dataclasses
             dataset_config: The pydantic config.
         """
-        self._reader = reader
+        self._reader = create_datasets(reader_config)
         self._config = dataset_config
         self._dataset_info: DatasetInfo | None = None
         self._datasets: dict[str, GraphDataset | None] | None = None
@@ -93,8 +94,29 @@ class GraphDatasetBuilder:
         systems reader, and then producing the graph datasets and the
         dataset info object.
         """
-        train_systems, valid_systems, test_systems = self._reader.load()
-        z_table = self._construct_z_table(train_systems)
+        train_systems = self._reader[0][:]
+        self._reader[0].release()
+
+        if self._reader[1] is not None:
+            valid_systems = self._reader[1][:]
+            self._reader[1].release()
+        else:
+            valid_systems = []
+
+        if self._reader[2] is not None:
+            test_systems = self._reader[2][:]
+            self._reader[2].release()
+        else:
+            test_systems = []
+
+        if self._config.atomic_energies_map is not None:
+            z_table = AtomicNumberTable(self._config.atomic_energies_map.keys())
+        else:
+            z_table = self._construct_z_table(train_systems)
+
+        train_systems, valid_systems, test_systems = (
+            filter_fn(train_systems, valid_systems, test_systems, z_table)
+        )
 
         train_graph_dataset, valid_graph_dataset, test_graph_dataset = (
             self._create_graph_datasets_from_chemical_systems(
@@ -114,7 +136,9 @@ class GraphDatasetBuilder:
             train_graph_dataset.graphs,
             self._config.graph_cutoff_angstrom,
             z_table,
+            self._config.atomic_energies_map,
             self._config.avg_num_neighbors,
+            self._config.avg_num_nodes,
             self._config.avg_r_min_angstrom,
         )
 
@@ -141,9 +165,10 @@ class GraphDatasetBuilder:
             these are of type GraphDataset, otherwise of type PrefetchIterator.
         """
         if self._datasets is None:
-            raise DatasetsHaveNotBeenProcessedError(
-                "Datasets are not available yet. Run prepare_datasets() first."
+            logger.warning(
+                "Datasets are not available yet. Running prepare_datasets() automatically..."
             )
+            self.prepare_datasets()
 
         if prefetch:
             if devices is None:
@@ -161,12 +186,14 @@ class GraphDatasetBuilder:
     def dataset_info(self) -> DatasetInfo:
         """Getter for the dataset info.
 
-        Will raise exception if dataset info not available yet.
+        Will call prepare_datasets() if dataset info not available yet.
         """
         if self._dataset_info is None:
-            raise DatasetsHaveNotBeenProcessedError(
-                "Dataset info not available yet. Run prepare_datasets() first."
+            logger.warning(
+                "Dataset info not available yet. Running prepare_datasets() automatically..."
             )
+            self.prepare_datasets()
+
         return self._dataset_info
 
     @staticmethod

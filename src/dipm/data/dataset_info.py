@@ -16,8 +16,9 @@ import logging
 import time
 
 import jraph
+import numpy as np
 import pydantic
-from ase import Atom
+from dipm.data.chemical_systems_readers.utils import CHEMICAL_SYMBOLS
 
 from dipm.data.helpers.atomic_energies import compute_average_e0s_from_graphs
 from dipm.data.helpers.atomic_number_table import AtomicNumberTable
@@ -39,6 +40,7 @@ class DatasetInfo(pydantic.BaseModel):
         cutoff_distance_angstrom: The graph cutoff distance that was
                           used in the dataset in Angstrom.
         avg_num_neighbors: The mean number of neighbors an atom has in the dataset.
+        avg_num_nodes: The mean number of nodes per graph in the dataset.
         avg_r_min_angstrom: The mean minimum edge distance for a structure in the
                             dataset.
         scaling_mean: The mean used for the rescaling of the dataset values, the
@@ -50,17 +52,28 @@ class DatasetInfo(pydantic.BaseModel):
     atomic_energies_map: dict[int, float]
     cutoff_distance_angstrom: float
     avg_num_neighbors: float = 1.0
+    avg_num_nodes: float = 1.0
     avg_r_min_angstrom: float | None = None
     scaling_mean: float = 0.0
     scaling_stdev: float = 1.0
 
+    @pydantic.field_validator("atomic_energies_map", mode="before")
+    @classmethod
+    def transform_atomic_energies_map_keys(
+        cls, value: dict[str | int, float]
+    ) -> dict[int, float]:
+        """Transform string keys to int."""
+        value = {int(k): v for k, v in value.items()}
+        return value
+
     def __str__(self):
         atomic_energies_map_with_symbols = {
-            Atom(num).symbol: value for num, value in self.atomic_energies_map.items()
+            CHEMICAL_SYMBOLS[num]: value for num, value in self.atomic_energies_map.items()
         }
         return (
             f"Atomic Energies: {atomic_energies_map_with_symbols}, "
             f"Avg. num. neighbors: {self.avg_num_neighbors:.2f}, "
+            f"Avg. num. nodes: {self.avg_num_nodes:.2f}, "
             f"Avg. r_min: {self.avg_r_min_angstrom:.2f}, "
             f"Graph cutoff distance: {self.cutoff_distance_angstrom}"
         )
@@ -70,7 +83,9 @@ def compute_dataset_info_from_graphs(
     graphs: list[jraph.GraphsTuple],
     cutoff_distance_angstrom: float,
     z_table: AtomicNumberTable,
+    atomic_energies_map: dict[int, float] | None = None,
     avg_num_neighbors: float | None = None,
+    avg_num_nodes: float | None = None,
     avg_r_min_angstrom: float | None = None,
 ) -> DatasetInfo:
     """Computes the dataset info from graphs, typically training set graphs.
@@ -81,8 +96,12 @@ def compute_dataset_info_from_graphs(
                                   store in the dataset info.
         z_table: The atomic numbers table needed to produce the correct atomic energies
                  map keys.
+        atomic_energies_map: The optionally pre-computed atomic energies map. If
+                             provided, we skip recomputing this.
         avg_num_neighbors: The optionally pre-computed average number of neighbors. If
                            provided, we skip recomputing this.
+        avg_num_nodes: The optionally pre-computed average number of nodes per graph. If
+                       provided, we skip recomputing this.
         avg_r_min_angstrom: The optionally pre-computed average miminum radius. If
                             provided, we skip recomputing this.
 
@@ -98,15 +117,21 @@ def compute_dataset_info_from_graphs(
         logger.debug("Computing average number of neighbors...")
         avg_num_neighbors = compute_avg_num_neighbors(graphs)
         logger.debug("Average number of neighbors: %.1f", avg_num_neighbors)
+    if avg_num_nodes is None:
+        logger.debug("Computing average number of nodes...")
+        avg_num_nodes = np.mean([i.item() for g in graphs for i in g.n_node])
+        logger.debug("Average number of nodes: %.1f", avg_num_nodes)
     if avg_r_min_angstrom is None:
         logger.debug("Computing average min neighbor distance...")
         avg_r_min_angstrom = compute_avg_min_neighbor_distance(graphs)
         logger.debug("Average min. node distance (Angstrom): %.1f", avg_r_min_angstrom)
-
-    atomic_energies_map = {
-        z_table.index_to_z(idx): energy
-        for idx, energy in compute_average_e0s_from_graphs(graphs).items()
-    }
+    if atomic_energies_map is None:
+        logger.debug("Computing average atomic energies...")
+        atomic_energies_map = {
+            z_table.index_to_z(idx): energy
+            for idx, energy in compute_average_e0s_from_graphs(graphs).items()
+        }
+        logger.debug("Average atomic energies: %s", atomic_energies_map)
 
     logger.debug(
         "Computation of average atomic energies"
@@ -118,6 +143,7 @@ def compute_dataset_info_from_graphs(
         atomic_energies_map=atomic_energies_map,
         cutoff_distance_angstrom=cutoff_distance_angstrom,
         avg_num_neighbors=avg_num_neighbors,
+        avg_num_nodes=avg_num_nodes,
         avg_r_min_angstrom=avg_r_min_angstrom,
         scaling_mean=0.0,
         scaling_stdev=1.0,

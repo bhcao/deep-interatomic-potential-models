@@ -12,15 +12,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import jax
 import jax.numpy as jnp
 from jraph import GraphsTuple, get_graph_padding_mask
 
 
 def reweight_metrics_by_number_of_graphs(
-    metrics: dict[str, jnp.ndarray],
+    metrics: dict[str, jax.Array],
     batch: GraphsTuple,
     avg_n_graphs_per_batch: float,
-) -> dict[str, jnp.ndarray]:
+) -> dict[str, jax.Array]:
     """Reweights the metrics dictionary to account for different number of real
     graphs per batch.
 

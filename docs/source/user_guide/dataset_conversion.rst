@@ -1,6 +1,4 @@
-.. _extxyz_reader:
-
-.. module:: mlip.data.chemical_systems_readers.extxyz_reader
+.. _dataset_conversion:
 
 Extxyz Reader
 =============
@@ -27,11 +25,3 @@ Here's a shortened example of the training data in the extxyz format:
 
 For loading the extxyz file, we internally use ``ase.io.read`` from the
 `ASE library <https://wiki.fysik.dtu.dk/ase>`_.
-
-See below for the API reference to the associated loader class.
-
-.. autoclass:: ExtxyzReader
-
-    .. automethod:: __init__
-
-    .. automethod:: load

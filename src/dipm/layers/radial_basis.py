@@ -22,7 +22,7 @@ from flax.typing import Dtype
 from flax.nnx.nn import initializers
 import e3nn_jax as e3nn
 
-from dipm.layers.cutoff import CosineCutoff
+from dipm.layers.radial_embeddings import CosineCutoff
 
 
 class ExpNormalSmearing(nnx.Module):
@@ -59,7 +59,7 @@ class ExpNormalSmearing(nnx.Module):
         betas = jnp.full((num_rbf,), (2 / num_rbf * (1 - start_value)) ** -2)
         return means, betas
 
-    def __call__(self, dist: jnp.ndarray) -> jnp.ndarray:
+    def __call__(self, dist: jax.Array) -> jax.Array:
         betas = self.betas.value if self.trainable else self.betas
         means = self.means.value if self.trainable else self.means
 
@@ -76,13 +76,14 @@ class GaussianSmearing(nnx.Module):
         cutoff: float = 5.0,
         num_rbf: int = 50,
         trainable: bool = True,
+        rbf_width: float = 1.0,
         *,
         param_dtype: Dtype = jnp.float32,
         rngs: nnx.Rngs,
     ):
         self.trainable = trainable
 
-        offset, coeff = self._initial_params(cutoff, num_rbf)
+        offset, coeff = self._initial_params(cutoff, num_rbf, rbf_width)
         if trainable:
             offset_key = rngs.params()
             self.offset = nnx.Param(
@@ -97,12 +98,12 @@ class GaussianSmearing(nnx.Module):
             self.coeff = coeff
         self.cutoff_fn = CosineCutoff(cutoff)
 
-    def _initial_params(self, cutoff, num_rbf):
+    def _initial_params(self, cutoff, num_rbf, rbf_width):
         offset = jnp.linspace(0, cutoff, num_rbf)
-        coeff = -0.5 / (offset[1] - offset[0]) ** 2
+        coeff = -0.5 / (rbf_width * (offset[1] - offset[0])) ** 2
         return offset, coeff
 
-    def __call__(self, dist: jnp.ndarray) -> jnp.ndarray:
+    def __call__(self, dist: jax.Array) -> jax.Array:
         offset = self.offset.value if self.trainable else self.offset
         coeff = self.coeff.value if self.trainable else self.coeff
 

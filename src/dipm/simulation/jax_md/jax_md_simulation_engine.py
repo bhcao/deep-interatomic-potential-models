@@ -65,14 +65,6 @@ class JaxMDSimulationEngine(SimulationEngine):
 
     Config = JaxMDSimulationConfig
 
-    def __init__(
-        self,
-        atoms: ase.Atoms,
-        force_field: ForceFieldPredictor,
-        config: JaxMDSimulationConfig,
-    ) -> None:
-        super().__init__(atoms, force_field, config)
-
     def _initialize(
         self,
         atoms: ase.Atoms,

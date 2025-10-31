@@ -19,6 +19,7 @@ import logging
 import e3nn_jax as e3nn
 from flax import nnx
 from flax.typing import Dtype
+import jax
 import jax.numpy as jnp
 from e3nn_jax.legacy import FunctionalTensorProduct
 
@@ -30,7 +31,7 @@ from dipm.layers import (
     FullyConnectedTensorProduct,
     RadialEmbeddingLayer,
     get_activation_fn,
-    get_radial_envelope_fn,
+    get_radial_envelope_cls,
     get_radial_basis_fn,
 )
 from dipm.models.force_model import ForceModel
@@ -84,7 +85,7 @@ class Nequip(ForceModel):
         if num_species is None:
             num_species = len(self.dataset_info.atomic_energies_map)
 
-        radial_envelope_fun = get_radial_envelope_fn(self.config.radial_envelope)
+        radial_envelope_fun = get_radial_envelope_cls(self.config.radial_envelope)(r_max)
 
         nequip_kwargs = dict(
             avg_num_neighbors=avg_num_neighbors,
@@ -112,11 +113,13 @@ class Nequip(ForceModel):
 
     def __call__(
         self,
-        edge_vectors: jnp.ndarray,
-        node_species: jnp.ndarray,
-        senders: jnp.ndarray,
-        receivers: jnp.ndarray,
-    ) -> jnp.ndarray:
+        edge_vectors: jax.Array,
+        node_species: jax.Array,
+        senders: jax.Array,
+        receivers: jax.Array,
+        _n_node: jax.Array, # Nel version of pyg.Data.batch, not used
+        _rngs: nnx.Rngs | None = None, # Rngs for dropout, None for eval, not used
+    ) -> jax.Array:
 
         node_energies = self.nequip_model(edge_vectors, node_species, senders, receivers)
 
@@ -145,8 +148,8 @@ class NequipBlock(nnx.Module):
         use_residual_connection: bool,
         nonlinearities: str | dict[str, str],
         avg_r_min: float,
-        radial_basis: Callable[[jnp.ndarray], jnp.ndarray],
-        radial_envelope: Callable[[jnp.ndarray], jnp.ndarray],
+        radial_basis: Callable[[jax.Array], jax.Array],
+        radial_envelope: Callable[[jax.Array], jax.Array],
         *,
         param_dtype: Dtype = jnp.float32,
         rngs: nnx.Rngs
@@ -213,11 +216,11 @@ class NequipBlock(nnx.Module):
 
     def __call__(
         self,
-        edge_vectors: jnp.ndarray,
-        node_species: jnp.ndarray,
-        senders: jnp.ndarray,
-        receivers: jnp.ndarray,
-    ) -> jnp.ndarray:
+        edge_vectors: jax.Array,
+        node_species: jax.Array,
+        senders: jax.Array,
+        receivers: jax.Array,
+    ) -> jax.Array:
         # Nodes Embedding
         embedding_irreps = e3nn.Irreps(f"{self.num_species}x0e")
         identity = jnp.eye(self.num_species)
@@ -392,7 +395,7 @@ class NequipLayer(nnx.Module):
 
         # The first feature is input features
         self.mlp = MultiLayerPerceptron(
-            (num_bessel,) + (radial_net_n_hidden,) * radial_net_n_layers + (n_tp_weights,),
+            [num_bessel] + [radial_net_n_hidden] * radial_net_n_layers + [n_tp_weights],
             activation=radial_net_nonlinearity,
             use_bias=False,
             use_act_norm=False,
@@ -425,9 +428,9 @@ class NequipLayer(nnx.Module):
         node_feats: e3nn.IrrepsArray,
         node_attrs: e3nn.IrrepsArray,
         edge_sh: e3nn.IrrepsArray,
-        senders: jnp.ndarray,
-        receivers: jnp.ndarray,
-        edge_embedded: jnp.ndarray,
+        senders: jax.Array,
+        receivers: jax.Array,
+        edge_embedded: jax.Array,
     ) -> e3nn.IrrepsArray:
 
         if self.use_residual_connection:

@@ -67,7 +67,7 @@ def get_veclayernorm_fn(norm_type: VecNormType | str, eps: float = 1e-12):
             vec1 = norm_fn(vec1, eps)
             vec2 = norm_fn(vec2, eps)
             vec = jnp.concatenate([vec1, vec2], axis=1)
-        
+
         return vec  # We have removed VecNorm trainability
-    
+
     return closure

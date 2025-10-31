@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import e3nn_jax as e3nn
+import jax
 import jax.numpy as jnp
 import jraph
 import numpy as np
@@ -32,7 +33,7 @@ def _masked_mean(x, mask):
     return jnp.sum(jnp.dot(mask, x)) / jnp.sum(mask)
 
 
-def compute_mae(delta: jnp.ndarray, mask) -> float:
+def compute_mae(delta: jax.Array, mask) -> float:
     return _masked_mean(jnp.abs(delta), mask)
 
 
@@ -40,7 +41,7 @@ def _masked_mean_f(x, mask):
     return jnp.sum(mask[..., None] * x) / (jnp.sum(mask) * 3)
 
 
-def compute_mae_f(delta: jnp.ndarray, mask) -> float:
+def compute_mae_f(delta: jax.Array, mask) -> float:
     return _masked_mean_f(jnp.abs(delta), mask)
 
 
@@ -48,25 +49,25 @@ def _masked_mean_stress(x, mask):
     return jnp.sum(mask[..., None, None] * x) / (jnp.sum(mask) * 9)
 
 
-def compute_mae_stress(delta: jnp.ndarray, mask) -> float:
+def compute_mae_stress(delta: jax.Array, mask) -> float:
     return _masked_mean_stress(jnp.abs(delta), mask)
 
 
-def compute_mse(delta: jnp.ndarray, mask) -> float:
+def compute_mse(delta: jax.Array, mask) -> float:
     return _masked_mean(jnp.square(delta), mask)
 
 
-def compute_mse_f(delta: jnp.ndarray, mask) -> float:
+def compute_mse_f(delta: jax.Array, mask) -> float:
     return _masked_mean_f(jnp.square(delta), mask)
 
 
-def compute_mse_stress(delta: jnp.ndarray, mask) -> float:
+def compute_mse_stress(delta: jax.Array, mask) -> float:
     return _masked_mean_stress(jnp.square(delta), mask)
 
 
 def _sum_nodes_of_the_same_graph(
-    graph: GraphsTuple, node_quantities: jnp.ndarray
-) -> jnp.ndarray:
+    graph: GraphsTuple, node_quantities: jax.Array
+) -> jax.Array:
     return e3nn.scatter_sum(node_quantities, nel=graph.n_node)  # [ n_graphs,]
 
 
@@ -201,7 +202,7 @@ def compute_eval_metrics(
     prediction: Prediction,
     ref_graph: GraphsTuple,
     extended_metrics: bool = False,
-) -> dict[str, jnp.ndarray]:
+) -> dict[str, jax.Array]:
     """Compute (extended) evaluation metrics dictionary."""
 
     graph_mask = jraph.get_graph_padding_mask(ref_graph)  # [n_graphs,]
@@ -258,18 +259,7 @@ def compute_eval_metrics(
         )
         stress_per_atom_list.append(ref_graph.globals.stress / jnp.sum(node_mask))
 
-    metrics = {
-        "mae_e": jnp.nan,
-        "mae_e_per_atom": jnp.nan,
-        "mse_e": jnp.nan,
-        "mse_e_per_atom": jnp.nan,
-        "mae_f": jnp.nan,
-        "mse_f": jnp.nan,
-        "mae_stress": jnp.nan,
-        "mae_stress_per_atom": jnp.nan,
-        "mse_stress": jnp.nan,
-        "mse_stress_per_atom": jnp.nan,
-    }
+    metrics = {}
 
     if len(delta_es_list) > 0:
         delta_es = jnp.concatenate(delta_es_list, axis=0)
