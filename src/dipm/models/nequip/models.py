@@ -38,6 +38,7 @@ from dipm.models.force_model import ForceModel
 from dipm.models.nequip.config import NequipConfig
 from dipm.models.nequip.nequip_helpers import prod, tp_path_exists
 from dipm.utils.safe_norm import safe_norm
+from dipm.typing import get_dtype
 
 logger = logging.getLogger("dipm")
 
@@ -68,10 +69,12 @@ class Nequip(ForceModel):
         config: dict | NequipConfig,
         dataset_info: DatasetInfo,
         *,
-        param_dtype: Dtype = jnp.float32,
+        dtype: Dtype | None = None,
         rngs: nnx.Rngs
     ):
-        super().__init__(config, dataset_info)
+        super().__init__(config, dataset_info, dtype=dtype)
+        dtype = self.dtype
+        param_dtype = get_dtype(self.config.param_dtype)
 
         e3nn.config("path_normalization", "path")
         e3nn.config("gradient_normalization", "path")
@@ -106,10 +109,15 @@ class Nequip(ForceModel):
             scalar_mlp_std=self.config.scalar_mlp_std,
         )
 
-        self.nequip_model = NequipBlock(**nequip_kwargs, param_dtype=param_dtype, rngs=rngs)
-        self.atomic_energies = get_atomic_energies(
-            self.dataset_info, self.config.atomic_energies, num_species
+        self.nequip_model = NequipBlock(
+            **nequip_kwargs,
+            dtype=dtype,
+            param_dtype=param_dtype,
+            rngs=rngs
         )
+        self.atomic_energies = nnx.Cache(get_atomic_energies(
+            self.dataset_info, self.config.atomic_energies, num_species, dtype=dtype
+        ))
 
     def __call__(
         self,
@@ -126,7 +134,7 @@ class Nequip(ForceModel):
         mean = self.dataset_info.scaling_mean
         std = self.dataset_info.scaling_stdev
         node_energies = mean + std * node_energies
-        node_energies += self.atomic_energies[node_species]  # [n_nodes, ]
+        node_energies += self.atomic_energies.value[node_species]  # [n_nodes, ]
 
         return node_energies
 
@@ -151,6 +159,7 @@ class NequipBlock(nnx.Module):
         radial_basis: Callable[[jax.Array], jax.Array],
         radial_envelope: Callable[[jax.Array], jax.Array],
         *,
+        dtype: Dtype | None = None,
         param_dtype: Dtype = jnp.float32,
         rngs: nnx.Rngs
     ):
@@ -163,6 +172,7 @@ class NequipBlock(nnx.Module):
         self.node_embeddings = Linear(
             irreps_in=e3nn.Irreps(f"{num_species}x0e"),
             irreps_out=node_irreps,
+            dtype=dtype,
             param_dtype=param_dtype,
             rngs=rngs,
         )
@@ -192,6 +202,7 @@ class NequipBlock(nnx.Module):
                 num_bessel=num_bessel,
                 avg_num_neighbors=avg_num_neighbors,
                 scalar_mlp_std=scalar_mlp_std,
+                dtype=dtype,
                 param_dtype=param_dtype,
                 rngs=rngs,
             )
@@ -210,8 +221,10 @@ class NequipBlock(nnx.Module):
         final_irreps = e3nn.Irreps("1x0e")
 
         self.output = nnx.Sequential(
-            Linear(in_irreps, second_to_final_irreps, param_dtype=param_dtype, rngs=rngs),
-            Linear(second_to_final_irreps, final_irreps, param_dtype=param_dtype, rngs=rngs),
+            Linear(in_irreps, second_to_final_irreps,
+                   dtype=dtype, param_dtype=param_dtype, rngs=rngs),
+            Linear(second_to_final_irreps, final_irreps,
+                   dtype=dtype, param_dtype=param_dtype, rngs=rngs),
         )
 
     def __call__(
@@ -293,6 +306,7 @@ class NequipLayer(nnx.Module):
         avg_num_neighbors: float = 1.0,
         scalar_mlp_std: float = 4.0,
         *,
+        dtype: Dtype | None = None,
         param_dtype: Dtype = jnp.float32,
         rngs: nnx.Rngs,
     ):
@@ -342,10 +356,12 @@ class NequipLayer(nnx.Module):
         if self.use_residual_connection:
             self.residual_tenor_product = FullyConnectedTensorProduct(
                 in_irreps, e3nn.Irreps(f"{num_species}x0e"), h_out_irreps,
-                param_dtype=param_dtype, rngs=rngs,
+                dtype=dtype, param_dtype=param_dtype, rngs=rngs,
             )
 
-        self.linear_in = Linear(in_irreps, node_irreps, param_dtype=param_dtype, rngs=rngs)
+        self.linear_in = Linear(
+            in_irreps, node_irreps, dtype=dtype, param_dtype=param_dtype, rngs=rngs
+        )
 
         # gather the instructions for the tp as well as the tp output irreps
         mode = "uvu"
@@ -401,11 +417,14 @@ class NequipLayer(nnx.Module):
             use_act_norm=False,
             gradient_normalization=0.0,
             scalar_mlp_std=scalar_mlp_std,
+            dtype=dtype,
             param_dtype=param_dtype,
             rngs=rngs,
         )
 
-        self.linear_out = Linear(irreps_after_tp, h_out_irreps, param_dtype=param_dtype, rngs=rngs)
+        self.linear_out = Linear(
+            irreps_after_tp, h_out_irreps, dtype=dtype, param_dtype=param_dtype, rngs=rngs
+        )
 
         # gate nonlinearity, applied to gate data, consisting of:
         # a) regular scalars,

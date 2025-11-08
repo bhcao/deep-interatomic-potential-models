@@ -28,7 +28,7 @@ class GateActivation(nnx.Module):
         self.num_channels = num_channels
 
         # Can be used directly on m_prime representation
-        self.expand_index = expand_index(lmax, mmax, vector_only=True, m_prime=m_prime)
+        self.expand_index = nnx.Cache(expand_index(lmax, mmax, vector_only=True, m_prime=m_prime))
 
     def __call__(self, gating_scalars, input_tensors):
         """
@@ -39,7 +39,7 @@ class GateActivation(nnx.Module):
         gating_scalars = nnx.sigmoid(gating_scalars)
         gating_scalars = gating_scalars.reshape(
             gating_scalars.shape[0], self.lmax, self.num_channels
-        )[:, self.expand_index]
+        )[:, self.expand_index.value]
 
         input_tensors_scalars = nnx.silu(input_tensors[:, 0:1])
         input_tensors_vectors = input_tensors[:, 1:] * gating_scalars

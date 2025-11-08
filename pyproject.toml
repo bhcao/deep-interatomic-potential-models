@@ -1,6 +1,6 @@
 [project]
 name = "dipm"
-version = "0.0.1"
+version = "0.0.3"
 description = "Deep Interatomic Potential Models in JAX"
 license = "Apache 2.0"
 authors = [
@@ -24,11 +24,9 @@ dependencies = [
     "numpy (>=1.26.0,<2.0.0)",
     "jax (>=0.4.33)",
     "orbax-checkpoint (==0.5.2)",
-    "omegaconf (>=2.3.0)",
     "e3nn-jax (>=0.20.7)",
     "flax (>=0.9.0)",
     "jraph",
-    "jax-md (>=0.2.8)",
     "orbax (>=0.1.9)",
     "matscipy (==1.0.0)",
     "tdqm (>=0.0.1)",
@@ -43,6 +41,10 @@ dependencies = [
 cue = [
     "cuequivariance (>=0.6.0)",
     "cuequivariance-jax (>=0.6.0)",
+]
+md = [
+    "ase (>=3.22.0)",
+    "jax-md (>=0.2.8)",
 ]
 
 [tool.poetry.urls]

@@ -12,5 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .enums import SimulationType
-from .state import SimulationState
+from dipm.simulation.enums import SimulationType
+from dipm.simulation.state import SimulationState
+from dipm.simulation.batched_inference import run_batched_inference
+from dipm.simulation.jax_md.jax_md_simulation_engine import JaxMDSimulationEngine
+from dipm.simulation.ase.ase_simulation_engine import ASESimulationEngine

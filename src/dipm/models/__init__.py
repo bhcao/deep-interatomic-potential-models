@@ -19,3 +19,12 @@ from dipm.models.visnet.models import Visnet
 from dipm.models.liten.models import LiTEN
 from dipm.models.equiformer_v2.models import EquiformerV2
 from dipm.models.uma.models import UMA
+
+KNOWN_MODELS = {
+    "Mace": Mace,
+    "Nequip": Nequip,
+    "Visnet": Visnet,
+    "LiTEN": LiTEN,
+    "EquiformerV2": EquiformerV2,
+    "UMA": UMA,
+}

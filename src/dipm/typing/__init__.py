@@ -13,7 +13,10 @@
 # limitations under the License.
 
 # flake8: noqa: A005
-from dipm.typing.fields import Irreps, NonNegativeInt, PositiveFloat, PositiveInt
+from dipm.typing.fields import (
+    Irreps, NonNegativeFloat, NonNegativeInt, PositiveFloat, PositiveInt, Proportion, PathLike,
+    DtypeEnum, get_dtype
+)
 from dipm.typing.graph_definition import GraphEdges, GraphGlobals, GraphNodes
 from dipm.typing.prediction import Prediction
 from dipm.typing.signatures import (

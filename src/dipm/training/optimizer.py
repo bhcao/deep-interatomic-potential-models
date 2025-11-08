@@ -21,7 +21,7 @@ from flax.nnx.pytreelib import Pytree
 from flax.nnx.traversals import unflatten_mapping, flatten_mapping
 import optax
 
-from dipm.training.optimizer_config import OptimizerConfig
+from dipm.training.configs import OptimizerConfig
 
 
 class EMATracker(Pytree):
@@ -41,8 +41,7 @@ class EMATracker(Pytree):
             accumulator_dtype: Optional `dtype` to used for the accumulator defined by
                                `optax.ema`.
         '''
-        self.wrt = [nnx.Param, nnx.BatchStat]
-        self.graphdef, state, self.static = nnx.split(model, self.wrt, ...)
+        self.graphdef, state, _ = nnx.split(model, nnx.Param, ...)
         # Debias will be manually applied when getting the final EMA model.
         self.tx = optax.ema(decay, False, accumulator_dtype)
         self.opt_state = nnx.data(optimizer.to_opt_state(self.tx.init(state)))
@@ -54,19 +53,39 @@ class EMATracker(Pytree):
         Args:
             model: The updated original model.
         '''
-        param_arrays = nnx.to_arrays(nnx.pure(nnx.state(model, self.wrt)))
+        param_arrays = nnx.to_arrays(nnx.pure(nnx.state(model, nnx.Param)))
         opt_state_arrays = nnx.to_arrays(nnx.pure(self.opt_state))
 
         _, new_opt_state = self.tx.update(param_arrays, opt_state_arrays)
         nnx.update(self.opt_state, nnx.state(new_opt_state))
 
-    def get_model(self) -> nnx.Module:
-        '''Final EMA model'''
-        opt_state_arrays = nnx.to_arrays(nnx.pure(self.opt_state))
-        ema = opt_state_arrays.ema
-        if self.debias:
-            ema = optax.tree.bias_correction(ema, self.decay, opt_state_arrays.count)
-        return nnx.merge(self.graphdef, nnx.state(ema), self.static)
+    def get_model(self, other_state: nnx.State, parallel: bool = False) -> nnx.Module:
+        '''Get the final EMA model. We do not store the other state because nnx.BatchStat
+        is not static.
+
+        Args:
+            other_state: The other state to be merged with the EMA model, e.g., static
+                         variables and nnx.BatchStat.
+            parallel: True if the model is trained in parallel.
+        '''
+
+        def _get_model(opt_state, decay) -> nnx.State:
+            opt_state_arrays = nnx.to_arrays(nnx.pure(opt_state))
+            ema = opt_state_arrays.ema
+            if self.debias:
+                ema = optax.tree.bias_correction(ema, decay, opt_state_arrays.count)
+            return nnx.state(ema)
+
+        if parallel:
+            state = nnx.pmap(
+                _get_model,
+                axis_name="device",
+                static_broadcasted_argnums=(1,),
+            )(self.opt_state, self.decay)
+        else:
+            state = _get_model(self.opt_state, self.decay)
+
+        return nnx.merge(self.graphdef, state, other_state)
 
 
 # key of nnx.State might be int

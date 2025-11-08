@@ -15,16 +15,13 @@
 from pathlib import Path
 
 import pydantic
-from omegaconf import ListConfig
 from pydantic import field_validator, model_validator
-from typing_extensions import Annotated, Self
+from typing_extensions import Self
 
-PositiveInt = Annotated[int, pydantic.Field(gt=0)]
-PositiveFloat = Annotated[float, pydantic.Field(gt=0)]
-Percentage = Annotated[float, pydantic.Field(ge=0.0, le=1.0)]
+from dipm.typing import PositiveInt, PositiveFloat, Proportion, PathLike
 
 
-class ChemicalSystemsReaderConfig(pydantic.BaseModel):
+class ChemicalDatasetsConfig(pydantic.BaseModel):
     """Pydantic-based config related to data preprocessing and loading into
     `ChemicalSystem`s.
 
@@ -32,7 +29,7 @@ class ChemicalSystemsReaderConfig(pydantic.BaseModel):
     in those directories will be automatically detected and added.
 
     In `dataset_splits` and `*_num_to_load`, if a float is given, it will be interpreted as
-    percentage. If an integer is given, it will be interpreted as number of data points.
+    proportion. If an integer is given, it will be interpreted as number of data points.
 
     Attributes:
         train_dataset_paths: Path(s) to where the training set(s) are located.
@@ -65,42 +62,40 @@ class ChemicalSystemsReaderConfig(pydantic.BaseModel):
                            If multiple dataset paths are given, this limit will apply in total.
     """
 
-    train_dataset_paths: str | Path | list[str | Path]
-    valid_dataset_paths: str | Path | list[str | Path] | None = None
-    test_dataset_paths: str | Path | list[str | Path] | None = None
+    train_dataset_paths: PathLike | list[PathLike]
+    valid_dataset_paths: PathLike | list[PathLike] | None = None
+    test_dataset_paths: PathLike | list[PathLike] | None = None
 
     dataset_splits: (
         tuple[PositiveInt, PositiveInt, PositiveInt] |
-        tuple[Percentage, Percentage, Percentage] | None
+        tuple[Proportion, Proportion, Proportion] | None
     ) = None
 
     shuffle: bool = True
     parallel: bool = True
 
-    train_num_to_load: PositiveInt | Percentage | None = None
-    valid_num_to_load: PositiveInt | Percentage | None = None
-    test_num_to_load: PositiveInt | Percentage | None = None
+    train_num_to_load: PositiveInt | Proportion | None = None
+    valid_num_to_load: PositiveInt | Proportion | None = None
+    test_num_to_load: PositiveInt | Proportion | None = None
 
     @field_validator(
         "train_dataset_paths",
         "valid_dataset_paths",
         "test_dataset_paths",
-        mode="before",
+        mode="after",
     )
     @classmethod
     def expand_path_to_list(
-        cls, value: str | Path | list[str | Path] | ListConfig | None
-    ) -> list[str | Path]:
+        cls, value: Path | list[Path] | None
+    ) -> list[Path]:
         """Converts a single path to a list of paths and expands directories."""
         if value is None:
             return []
 
-        if isinstance(value, (str, Path)):
+        if isinstance(value, Path):
             paths = [value]
         elif isinstance(value, list):
             paths = value
-        elif isinstance(value, ListConfig):
-            paths = list(value)
         else:
             raise ValueError(
                 f"*_dataset_paths must be a string, Path, or a list of them, "
@@ -109,8 +104,6 @@ class ChemicalSystemsReaderConfig(pydantic.BaseModel):
 
         expanded_paths = []
         for path in paths:
-            if isinstance(path, str):
-                path = Path(path)
             if path.is_dir():
                 for file in path.glob("*.hdf5"):
                     expanded_paths.append(file)

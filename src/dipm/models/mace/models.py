@@ -43,6 +43,7 @@ from dipm.models.mace.blocks import (
 from dipm.models.mace.config import MaceConfig
 from dipm.models.force_model import ForceModel
 from dipm.utils.safe_norm import safe_norm
+from dipm.typing import get_dtype
 
 
 class Mace(ForceModel):
@@ -70,10 +71,12 @@ class Mace(ForceModel):
         config: dict | MaceConfig,
         dataset_info: DatasetInfo,
         *,
-        param_dtype: Dtype = jnp.float32,
+        dtype: Dtype | None = None,
         rngs: nnx.Rngs
     ):
-        super().__init__(config, dataset_info)
+        super().__init__(config, dataset_info, dtype=dtype)
+        dtype = self.dtype
+        param_dtype = get_dtype(self.config.param_dtype)
 
         e3nn.config("path_normalization", "path")
         e3nn.config("gradient_normalization", "path")
@@ -130,11 +133,16 @@ class Mace(ForceModel):
             species_embedding_dim=self.config.species_embedding_dim,
         )
 
-        self.mace_block = MaceBlock(**mace_block_kwargs, param_dtype=param_dtype, rngs=rngs)
-
-        self.atomic_energies = get_atomic_energies(
-            self.dataset_info, self.config.atomic_energies, num_species
+        self.mace_block = MaceBlock(
+            **mace_block_kwargs,
+            dtype=dtype,
+            param_dtype=param_dtype,
+            rngs=rngs
         )
+
+        self.atomic_energies = nnx.Cache(get_atomic_energies(
+            self.dataset_info, self.config.atomic_energies, num_species, dtype=dtype
+        ))
 
     def __call__(
         self,
@@ -157,7 +165,7 @@ class Mace(ForceModel):
         mean = self.dataset_info.scaling_mean
         std = self.dataset_info.scaling_stdev
         node_energies = mean + std * node_energies
-        node_energies += self.atomic_energies[node_species]  # [n_nodes, ]
+        node_energies += self.atomic_energies.value[node_species]  # [n_nodes, ]
 
         return node_energies
 
@@ -189,6 +197,7 @@ class MaceBlock(nnx.Module):
         gate_nodes: bool = False,
         species_embedding_dim: int | None = None,
         *,
+        dtype: Dtype | None = None,
         param_dtype: Dtype = jnp.float32,
         rngs: nnx.Rngs,
     ):
@@ -199,6 +208,7 @@ class MaceBlock(nnx.Module):
         self.node_embed = LinearNodeEmbeddingLayer(
             num_species,
             num_channels * e3nn.Irreps("0e"),
+            dtype=dtype,
             param_dtype=param_dtype,
             rngs=rngs,
         )
@@ -212,7 +222,8 @@ class MaceBlock(nnx.Module):
         self.species_embed = None
         if species_embedding_dim is not None:
             self.species_embed = nnx.Embed(
-                num_species, species_embedding_dim, param_dtype=param_dtype, rngs=rngs,
+                num_species, species_embedding_dim,
+                dtype=dtype, param_dtype=param_dtype, rngs=rngs,
             )
 
         # Target of EquivariantProductBasisBlock and skip-connections
@@ -220,7 +231,7 @@ class MaceBlock(nnx.Module):
 
         # Target of InteractionBlock = source of EquivariantProductBasisBlock
         if not include_pseudotensors:
-            interaction_irreps = e3nn.Irreps.spherical_harmonics(l_max, p=1)
+            interaction_irreps = e3nn.Irreps.spherical_harmonics(l_max)
         else:
             interaction_irreps = e3nn.Irreps(e3nn.Irrep.iterator(l_max))
 
@@ -251,6 +262,7 @@ class MaceBlock(nnx.Module):
                 radial_embedding_dim=num_bessel,
                 species_embedding_dim=species_embedding_dim,
                 gate_nodes=gate_nodes,
+                dtype=dtype,
                 param_dtype=param_dtype,
                 rngs=rngs,
             )
@@ -348,6 +360,7 @@ class MaceLayer(nnx.Module):
         species_embedding_dim: int | None = None,
         gate_nodes: bool = False,
         *,
+        dtype: Dtype | None = None,
         param_dtype: Dtype = jnp.float32,
         rngs: nnx.Rngs,
     ):
@@ -373,6 +386,7 @@ class MaceLayer(nnx.Module):
                 in_irreps,
                 num_species * e3nn.Irreps("0e"),
                 out_irreps,
+                dtype=dtype,
                 param_dtype=param_dtype,
                 rngs=rngs,
             )
@@ -385,6 +399,7 @@ class MaceLayer(nnx.Module):
             activation=activation,
             radial_embedding_dim=radial_embedding_dim,
             species_embedding_dim=species_embedding_dim,
+            dtype=dtype,
             param_dtype=param_dtype,
             rngs=rngs,
         )
@@ -392,22 +407,24 @@ class MaceLayer(nnx.Module):
         # selector tensor product (first layer only)
         if selector_tp:
             self.selector_tp_layer = FullyConnectedTensorProduct(
-                num_channels * interaction_irreps,
+                self.interaction.out_irreps,
                 num_species * e3nn.Irreps("0e"),
-                num_channels * interaction_irreps,
+                self.interaction.out_irreps,
+                dtype=dtype,
                 param_dtype=param_dtype,
                 rngs=rngs,
             )
 
         # Exponentiate node features, keep degrees < node_symmetry only
         self.equivariant_product = EquivariantProductBasisBlock(
-            num_channels * interaction_irreps,
+            self.interaction.out_irreps,
             target_irreps=out_irreps,
             correlation=correlation,
             num_species=num_species,
             symmetric_tensor_product_basis=symmetric_tensor_product_basis,
             off_diagonal=off_diagonal,
             gate_nodes=gate_nodes,
+            dtype=dtype,
             param_dtype=param_dtype,
             rngs=rngs,
         )
@@ -418,6 +435,7 @@ class MaceLayer(nnx.Module):
                 self.readout_layers.append(Linear(
                     out_irreps,
                     output_irreps,
+                    dtype=dtype,
                     param_dtype=param_dtype,
                     rngs=rngs,
                 ))  # [n_nodes, output_irreps]
@@ -428,6 +446,7 @@ class MaceLayer(nnx.Module):
                     readout_mlp_irreps,
                     output_irreps,
                     activation=activation,
+                    dtype=dtype,
                     param_dtype=param_dtype,
                     rngs=rngs,
                 ))  # [n_nodes, output_irreps]

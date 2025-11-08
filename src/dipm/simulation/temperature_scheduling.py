@@ -16,7 +16,7 @@ from collections.abc import Callable
 
 import jax.numpy as jnp
 
-from dipm.simulation.jax_md.jax_md_config import TemperatureScheduleConfig
+from dipm.simulation.configs import TemperatureScheduleConfig
 from dipm.simulation.enums import TemperatureScheduleMethod
 
 

@@ -3,7 +3,7 @@
 IO handling during training
 ===========================
 
-.. module:: mlip.training.training_io_handler
+.. module:: dipm.training.training_io_handler
 
     .. autoclass:: TrainingIOHandler
 
@@ -19,13 +19,16 @@ IO handling during training
 
         .. automethod:: restore_training_state
 
+    .. autoclass:: LogCategory
+
+.. module:: dipm.training.configs
+    :noindex:
+
     .. autoclass:: TrainingIOHandlerConfig
 
         .. automethod:: __init__
 
-    .. autoclass:: LogCategory
-
-.. module:: mlip.training.training_loggers
+.. module:: dipm.training.training_loggers
 
     .. autofunction:: log_metrics_to_table
 

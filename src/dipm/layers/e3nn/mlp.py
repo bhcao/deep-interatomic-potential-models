@@ -51,6 +51,7 @@ class MultiLayerPerceptron(nnx.Module):
         use_act_norm: bool = True,
         scalar_mlp_std: float = 1.0,
         *,
+        dtype: Dtype | None = None,
         param_dtype: Dtype = jnp.float32,
         rngs: nnx.Rngs,
     ):
@@ -84,12 +85,15 @@ class MultiLayerPerceptron(nnx.Module):
                 out_features,
                 use_bias=use_bias,
                 kernel_init=initializers.normal(stddev),
+                dtype=dtype,
                 param_dtype=param_dtype,
                 rngs=rngs,
             )
             self.layers.append(layer)
             if use_layer_norm and i < len(features_list) - 2:
-                self.norms.append(nnx.LayerNorm(out_features, param_dtype=param_dtype, rngs=rngs))
+                self.norms.append(nnx.LayerNorm(
+                    out_features, dtype=dtype, param_dtype=param_dtype, rngs=rngs
+                ))
             else:
                 self.norms.append(lambda x: x) # placeholder
             in_features = out_features

@@ -15,7 +15,7 @@
 import jax
 import jax.numpy as jnp
 from flax import nnx
-from flax.nnx.nn import initializers
+from flax.nnx.nn import initializers, dtypes
 from flax.typing import Dtype
 
 from dipm.data.dataset_info import DatasetInfo
@@ -29,6 +29,7 @@ from dipm.models.force_model import ForceModel
 from dipm.models.atomic_energies import get_atomic_energies
 from dipm.models.liten.config import LiTENConfig
 from dipm.utils.safe_norm import safe_norm
+from dipm.typing import get_dtype
 
 
 class LiTEN(ForceModel):
@@ -58,10 +59,12 @@ class LiTEN(ForceModel):
         config: dict | LiTENConfig,
         dataset_info: DatasetInfo,
         *,
-        param_dtype: Dtype = jnp.float32,
+        dtype: Dtype | None = None,
         rngs: nnx.Rngs
     ):
-        super().__init__(config, dataset_info)
+        super().__init__(config, dataset_info, dtype=dtype)
+        dtype = self.dtype
+        param_dtype = get_dtype(self.config.param_dtype)
 
         r_max = self.dataset_info.cutoff_distance_angstrom
 
@@ -81,10 +84,15 @@ class LiTEN(ForceModel):
             num_species=num_species,
         )
 
-        self.liten_block = LiTENBlock(**liten_kwargs, param_dtype=param_dtype, rngs=rngs)
-        self.atomic_energies = get_atomic_energies(
-            self.dataset_info, self.config.atomic_energies, num_species
+        self.liten_block = LiTENBlock(
+            **liten_kwargs,
+            dtype=dtype,
+            param_dtype=param_dtype,
+            rngs=rngs
         )
+        self.atomic_energies = nnx.Cache(get_atomic_energies(
+            self.dataset_info, self.config.atomic_energies, num_species, dtype=dtype
+        ))
 
     def __call__(
         self,
@@ -107,7 +115,7 @@ class LiTEN(ForceModel):
         std = self.dataset_info.scaling_stdev
         node_energies = mean + std * node_energies
 
-        node_energies += self.atomic_energies[node_species]  # [n_nodes, ]
+        node_energies += self.atomic_energies.value[node_species]  # [n_nodes, ]
 
         return node_energies
 
@@ -125,17 +133,18 @@ class LiTENBlock(nnx.Module):
         cutoff: float = 5.0,
         num_species: int = 5,
         *,
+        dtype: Dtype | None = None,
         param_dtype: Dtype = jnp.float32,
         rngs: nnx.Rngs
     ):
         self.node_embedding = nnx.Embed(
-            num_species, num_channels, param_dtype=param_dtype, rngs=rngs
+            num_species, num_channels, dtype=dtype, param_dtype=param_dtype, rngs=rngs
         )
         self.radial_embedding = get_rbf_cls(rbf_type)(
-            cutoff, num_rbf, trainable_rbf, param_dtype=param_dtype, rngs=rngs
+            cutoff, num_rbf, trainable_rbf, dtype=dtype, param_dtype=param_dtype, rngs=rngs
         )
         self.edge_embedding = nnx.Linear(
-            num_rbf, num_channels, param_dtype=param_dtype, rngs=rngs
+            num_rbf, num_channels, dtype=dtype, param_dtype=param_dtype, rngs=rngs
         )
 
         self.liten_layers = [
@@ -146,6 +155,7 @@ class LiTENBlock(nnx.Module):
                 cutoff=cutoff,
                 vecnorm_type="max_min" if idx > 0 else "none",
                 update_edge=idx < num_layers - 1,
+                dtype=dtype,
                 param_dtype=param_dtype,
                 rngs=rngs,
             )
@@ -153,12 +163,13 @@ class LiTENBlock(nnx.Module):
         ]
 
         self.out_norm = nnx.LayerNorm(
-            num_channels, epsilon=1e-05, param_dtype=param_dtype, rngs=rngs
+            num_channels, epsilon=1e-05, dtype=dtype, param_dtype=param_dtype, rngs=rngs
         )
         self.readout_energy = nnx.Sequential(
-            nnx.Linear(num_channels, num_channels // 2, param_dtype=param_dtype, rngs=rngs),
+            nnx.Linear(num_channels, num_channels // 2,
+                       dtype=dtype, param_dtype=param_dtype, rngs=rngs),
             get_activation_fn(activation),
-            nnx.Linear(num_channels // 2, 1, param_dtype=param_dtype, rngs=rngs),
+            nnx.Linear(num_channels // 2, 1, dtype=dtype, param_dtype=param_dtype, rngs=rngs),
         )
 
     def __call__(
@@ -206,6 +217,7 @@ class LiTENLayer(nnx.Module):
         update_edge: bool = True,
         eps: float = 1e-8,
         *,
+        dtype: Dtype | None = None,
         param_dtype: Dtype = jnp.float32,
         rngs: nnx.Rngs
     ):
@@ -215,7 +227,7 @@ class LiTENLayer(nnx.Module):
         self.update_edge = update_edge
 
         self.layernorm = nnx.LayerNorm(
-            num_channels, param_dtype=param_dtype, rngs=rngs
+            num_channels, dtype=dtype, param_dtype=param_dtype, rngs=rngs
         )
         self.vec_layernorm = get_veclayernorm_fn(vecnorm_type, eps)
 
@@ -233,6 +245,7 @@ class LiTENLayer(nnx.Module):
             num_channels * 2,
             use_bias=False,
             kernel_init=initializers.xavier_uniform(),
+            dtype=dtype,
             param_dtype=param_dtype,
             rngs=rngs,
         )
@@ -241,6 +254,7 @@ class LiTENLayer(nnx.Module):
             num_channels,
             use_bias=False,
             kernel_init=initializers.xavier_uniform(),
+            dtype=dtype,
             param_dtype=param_dtype,
             rngs=rngs,
         )
@@ -248,6 +262,7 @@ class LiTENLayer(nnx.Module):
             num_channels,
             num_channels,
             kernel_init=initializers.xavier_uniform(),
+            dtype=dtype,
             param_dtype=param_dtype,
             rngs=rngs,
         )
@@ -255,6 +270,7 @@ class LiTENLayer(nnx.Module):
             num_channels,
             num_channels,
             kernel_init=initializers.xavier_uniform(),
+            dtype=dtype,
             param_dtype=param_dtype,
             rngs=rngs,
         )
@@ -262,6 +278,7 @@ class LiTENLayer(nnx.Module):
             num_channels,
             num_channels * 2,
             kernel_init=initializers.xavier_uniform(),
+            dtype=dtype,
             param_dtype=param_dtype,
             rngs=rngs,
         )
@@ -269,6 +286,7 @@ class LiTENLayer(nnx.Module):
             num_channels,
             num_channels * 3,
             kernel_init=initializers.xavier_uniform(),
+            dtype=dtype,
             param_dtype=param_dtype,
             rngs=rngs,
         )
@@ -276,9 +294,12 @@ class LiTENLayer(nnx.Module):
             num_channels,
             num_channels,
             kernel_init=initializers.xavier_uniform(),
+            dtype=dtype,
             param_dtype=param_dtype,
             rngs=rngs,
         )
+
+        self.dtype = dtype
 
     def edge_update(
         self,
@@ -310,10 +331,14 @@ class LiTENLayer(nnx.Module):
         norm_edge_vectors: jax.Array, # [n_edges, 3]
         edge_feats: jax.Array, # [n_edges, num_channels]
     ):
-        edge_feats = self.act(self.edge_linear(edge_feats)).reshape(-1, self.num_heads, self.head_dim)
+        alpha, = dtypes.promote_dtype((self.alpha.value,), dtype=self.dtype)
+
+        edge_feats = self.act(self.edge_linear(edge_feats)).reshape(
+            -1, self.num_heads, self.head_dim
+        )
         node_scalar = self.node_linear(node_scalar).reshape(-1, self.num_heads, self.head_dim)
         attn = node_scalar[receivers] + node_scalar[senders] + edge_feats
-        attn = self.act(attn) * self.alpha
+        attn = self.act(attn) * alpha
         attn = attn.sum(axis=-1) * self.cutoff_fn(edge_distances)[:, None]
         attn = attn[:, :, None]
 
@@ -338,7 +363,7 @@ class LiTENLayer(nnx.Module):
         node_vec1, node_vec2 = jnp.split(self.vec_linear(node_vector), 2, axis=-1)
         vec_tri = jnp.sum(node_vec1 * node_vec2, axis=1)
 
-        norm_vec = jnp.sqrt(jnp.sum(node_vec2 ** 2, axis=-2) + 1e-8)
+        norm_vec = jnp.sqrt(jnp.sum(node_vec2 ** 2, axis=-2) + 1e-16)
         vec_qua = norm_vec ** 3
 
         node_scalar = self.part_linear2(node_scalar)
@@ -364,7 +389,8 @@ class LiTENLayer(nnx.Module):
         node_vector = self.vec_layernorm(node_vector)
 
         scalar_out, vector_out = self.message_fn(
-            scalar_out, node_vector, senders, receivers, edge_distances, norm_edge_vectors, edge_feats
+            scalar_out, node_vector, senders, receivers, edge_distances,
+            norm_edge_vectors, edge_feats
         )
 
         if self.update_edge:

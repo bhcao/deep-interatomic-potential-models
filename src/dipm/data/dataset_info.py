@@ -18,7 +18,7 @@ import time
 import jraph
 import numpy as np
 import pydantic
-from dipm.data.chemical_systems_readers.utils import CHEMICAL_SYMBOLS
+from dipm.data.chemical_datasets.utils import CHEMICAL_SYMBOLS
 
 from dipm.data.helpers.atomic_energies import compute_average_e0s_from_graphs
 from dipm.data.helpers.atomic_number_table import AtomicNumberTable

@@ -83,7 +83,7 @@ def order_mask(lmax: int, mmax: int, lmax_emb: int = None) -> jax.Array:
 
 
 @lru_cache(maxsize=None)
-def rescale_matrix(lmax: int, mmax: int, dim: int = 1, *, dtype: Dtype = jnp.float64) -> jax.Array:
+def rescale_matrix(lmax: int, mmax: int, dim: int = 1, *, dtype: Dtype = jnp.float32) -> jax.Array:
     '''Rescale matrix for masked entries based on `mmax`.'''
 
     size = (lmax + 1) ** 2
@@ -108,7 +108,6 @@ class MappingCoefficients:
     lmax: int
     mmax: int
     perm: jax.Array
-    inv_perm: jax.Array
     m_size: list[int]
     num_coefficients: int
 
@@ -147,6 +146,5 @@ def mapping_coefficients(lmax: int, mmax: int) -> MappingCoefficients:
             perm_list.append(idx_i)
 
     perm = jnp.concat(perm_list)
-    inv_perm = jnp.argsort(perm)
 
-    return MappingCoefficients(lmax, mmax, perm, inv_perm, m_size, num_coefficients)
+    return MappingCoefficients(lmax, mmax, perm, m_size, num_coefficients)

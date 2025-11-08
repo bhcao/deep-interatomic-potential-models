@@ -1,5 +1,13 @@
 # Changelog
 
+## Release 0.0.3
+
+- Adding support for mixed precision training
+- Adding support for force head in EquiformerV2 and UMA models
+- Fixing parallel training
+- Fixing nan gradients of SO2 Convolution in special cases and incorrect MACE irreps
+- Adapting docs for DIPM
+
 ## Release 0.0.2
 
 - Adding model architectures: EquiformerV2, UMA

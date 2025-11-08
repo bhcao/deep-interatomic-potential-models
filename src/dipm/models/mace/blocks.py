@@ -28,6 +28,7 @@ from dipm.layers import (
     MultiLayerPerceptron,
     get_activation_fn,
 )
+from dipm.layers.dtypes import promote_dtype
 from dipm.models.mace.symmetric_contraction import SymmetricContraction
 
 
@@ -37,6 +38,7 @@ class LinearNodeEmbeddingLayer(nnx.Module):
         num_species: int,
         irreps_out: e3nn.Irreps,
         *,
+        dtype: Dtype | None = None,
         param_dtype: Dtype = jnp.float32,
         embeddings_init: Initializer = initializers.normal(stddev=1.0),
         rngs: nnx.Rngs,
@@ -50,12 +52,15 @@ class LinearNodeEmbeddingLayer(nnx.Module):
                 key, (num_species, self.irreps_out.dim), param_dtype
             )
         )
+        self.dtype = dtype
 
-    def __call__(self, node_specie: jax.Array) -> e3nn.IrrepsArray:
-        irreps_out = self.irreps_out
+    def __call__(self, node_species: jax.Array) -> e3nn.IrrepsArray:
+        embeddings, = promote_dtype(
+            (self.embeddings.value,), dtype=self.dtype
+        )
 
-        w = (1 / jnp.sqrt(self.num_species)) * self.embeddings.value
-        return e3nn.IrrepsArray(irreps_out, w[node_specie])
+        w = (1 / jnp.sqrt(self.num_species)) * embeddings
+        return e3nn.IrrepsArray(self.irreps_out, w[node_species])
 
 
 class NonLinearReadoutBlock(nnx.Module):
@@ -67,11 +72,14 @@ class NonLinearReadoutBlock(nnx.Module):
         activation: str | None = None,
         gate_activation: str | None = None,
         *,
+        dtype: Dtype | None = None,
         param_dtype: Dtype = jnp.float32,
         rngs: nnx.Rngs,
     ):
         self.activation = None if activation is None else get_activation_fn(activation)
-        self.gate_activation = None if gate_activation is None else get_activation_fn(gate_activation)
+        self.gate_activation = (
+            None if gate_activation is None else get_activation_fn(gate_activation)
+        )
 
         input_irreps = e3nn.Irreps(input_irreps)
         hidden_irreps = e3nn.Irreps(hidden_irreps)
@@ -86,6 +94,7 @@ class NonLinearReadoutBlock(nnx.Module):
         self.linear_in = Linear(
             input_irreps,
             intermediate_irreps,
+            dtype=dtype,
             param_dtype=param_dtype,
             rngs=rngs,
         )
@@ -95,6 +104,7 @@ class NonLinearReadoutBlock(nnx.Module):
         self.linear_out = Linear(
             intermediate_irreps,
             output_irreps,
+            dtype=dtype,
             param_dtype=param_dtype,
             rngs=rngs,
         )
@@ -118,6 +128,7 @@ class EquivariantProductBasisBlock(nnx.Module):
         off_diagonal: bool = False,
         gate_nodes: bool = False,
         *,
+        dtype: Dtype | None = None,
         param_dtype: Dtype = jnp.float32,
         rngs: nnx.Rngs,
     ):
@@ -136,6 +147,7 @@ class EquivariantProductBasisBlock(nnx.Module):
             gradient_normalization="element",
             symmetric_tensor_product_basis=symmetric_tensor_product_basis,
             off_diagonal=off_diagonal,
+            dtype=dtype,
             param_dtype=param_dtype,
             rngs=rngs,
         )
@@ -158,16 +170,23 @@ class EquivariantProductBasisBlock(nnx.Module):
         self.linear_out = Linear(
             target_irreps,
             target_irreps,
+            dtype=dtype,
             param_dtype=param_dtype,
             rngs=rngs,
         )
 
+        self.dtype = dtype
+
     def node_gating(
         self, node_feats: e3nn.IrrepsArray, node_species: jax.Array
     ) -> e3nn.IrrepsArray:
+        node_feats, gate_kernel, gate_bias = promote_dtype(
+            (node_feats, self.gate_kernel.value, self.gate_bias.value), dtype=self.dtype
+        )
+
         node_scalars = node_feats.filter("0e").array
-        w = self.gate_kernel.value[node_species]
-        b = self.gate_bias.value[node_species]
+        w = gate_kernel[node_species]
+        b = gate_bias[node_species]
         node_feats = node_feats * (jax.vmap(jnp.matmul)(node_scalars, w) + b)
         return node_feats
 
@@ -197,6 +216,7 @@ class MessagePassingConvolution(nnx.Module):
         radial_embedding_dim: int,
         species_embedding_dim: int | None = None,
         *,
+        dtype: Dtype | None = None,
         param_dtype: Dtype = jnp.float32,
         rngs: nnx.Rngs,
     ):
@@ -217,6 +237,7 @@ class MessagePassingConvolution(nnx.Module):
             [radial_embedding_dim] + 3 * [64] + [out_irreps.num_irreps],
             activation,
             gradient_normalization=1.0,
+            dtype=dtype,
             param_dtype=param_dtype,
             rngs=rngs,
         )
@@ -228,6 +249,7 @@ class MessagePassingConvolution(nnx.Module):
                 activation,
                 gradient_normalization=1.0,
                 use_bias=True,
+                dtype=dtype,
                 param_dtype=param_dtype,
                 rngs=rngs,
             )
@@ -284,6 +306,7 @@ class InteractionBlock(nnx.Module):
         radial_embedding_dim: int,
         species_embedding_dim: int | None = None,
         *,
+        dtype: Dtype | None = None,
         param_dtype: Dtype = jnp.float32,
         rngs: nnx.Rngs,
     ):
@@ -292,7 +315,9 @@ class InteractionBlock(nnx.Module):
         node_irreps = e3nn.Irreps(node_irreps)
         target_irreps = e3nn.Irreps(target_irreps)
 
-        self.linear_up = Linear(node_irreps, node_irreps, param_dtype=param_dtype, rngs=rngs)
+        self.linear_up = Linear(
+            node_irreps, node_irreps, dtype=dtype, param_dtype=param_dtype, rngs=rngs
+        )
         self.conv = MessagePassingConvolution(
             node_irreps,
             avg_num_neighbors,
@@ -301,10 +326,14 @@ class InteractionBlock(nnx.Module):
             activation,
             radial_embedding_dim=radial_embedding_dim,
             species_embedding_dim=species_embedding_dim,
+            dtype=dtype,
             param_dtype=param_dtype,
             rngs=rngs,
         )
-        self.linear_down = Linear(self.conv.out_irreps, target_irreps, param_dtype=param_dtype, rngs=rngs)
+        self.out_irreps = target_irreps.filter(self.conv.out_irreps)
+        self.linear_down = Linear(
+            self.conv.out_irreps, self.out_irreps, dtype=dtype, param_dtype=param_dtype, rngs=rngs
+        )
 
     def __call__(
         self,

@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from e3nn_jax import xyz_to_angles
 from flax import nnx
 from flax.typing import Dtype
 import jax
@@ -45,6 +44,7 @@ from dipm.models.equiformer_v2.transformer_block import (
     FeedForwardNetwork,
 )
 from dipm.utils.safe_norm import safe_norm
+from dipm.typing import get_dtype
 
 
 class EquiformerV2(ForceModel):
@@ -66,16 +66,19 @@ class EquiformerV2(ForceModel):
 
     Config = EquiformerV2Config
     config: EquiformerV2Config
+    force_head_prefix = "equiformer_model.force_block."
 
     def __init__(
         self,
         config: dict | EquiformerV2Config,
         dataset_info: DatasetInfo,
         *,
-        param_dtype: Dtype = jnp.float32,
+        dtype: Dtype | None = None,
         rngs: nnx.Rngs
     ):
-        super().__init__(config, dataset_info)
+        super().__init__(config, dataset_info, dtype=dtype)
+        dtype = self.dtype
+        param_dtype = get_dtype(self.config.param_dtype)
 
         r_max = self.dataset_info.cutoff_distance_angstrom
 
@@ -139,17 +142,19 @@ class EquiformerV2(ForceModel):
             rbf_width=2.0,
             cutoff=r_max,
             num_species=num_species,
+            predict_forces=self.predict_forces,
         )
 
         self.equiformer_model = EquiformerV2Block(
             **equiformer_kargs,
+            dtype=dtype,
             param_dtype=param_dtype,
             rngs=rngs,
         )
 
-        self.atomic_energies = get_atomic_energies(
-            self.dataset_info, self.config.atomic_energies, num_species
-        )
+        self.atomic_energies = nnx.Cache(get_atomic_energies(
+            self.dataset_info, self.config.atomic_energies, num_species, dtype=dtype
+        ))
 
     def __call__(
         self,
@@ -164,12 +169,17 @@ class EquiformerV2(ForceModel):
             edge_vectors, node_species, senders, receivers, n_node, rngs
         )
 
+        if self.predict_forces:
+            node_energies, forces = node_energies
+
         mean = self.dataset_info.scaling_mean
         std = self.dataset_info.scaling_stdev
         node_energies = mean + std * node_energies
 
-        node_energies += self.atomic_energies[node_species]  # [n_nodes, ]
+        node_energies += self.atomic_energies.value[node_species]  # [n_nodes, ]
 
+        if self.predict_forces:
+            return node_energies, forces
         return node_energies
 
 
@@ -208,7 +218,9 @@ class EquiformerV2Block(nnx.Module):
         trainable_rbf: bool = False,
         rbf_width: float = 2.0,
         cutoff: float = 5.0,
+        predict_forces: bool = False,
         *,
+        dtype: Dtype | None = None,
         param_dtype: Dtype = jnp.float32,
         rngs: nnx.Rngs
     ):
@@ -219,7 +231,7 @@ class EquiformerV2Block(nnx.Module):
 
         # Weights for message initialization
         self.sphere_embedding = nnx.Embed(
-            num_species, sphere_channels, param_dtype=param_dtype, rngs=rngs
+            num_species, sphere_channels, dtype=dtype, param_dtype=param_dtype, rngs=rngs
         )
 
         # Function used to measure the distances between atoms
@@ -228,6 +240,7 @@ class EquiformerV2Block(nnx.Module):
             num_rbf,
             trainable=trainable_rbf,
             rbf_width=rbf_width,
+            dtype=dtype,
             param_dtype=param_dtype,
             rngs=rngs,
         )
@@ -239,28 +252,31 @@ class EquiformerV2Block(nnx.Module):
         self.senders_embedding, self.receivers_embedding = None, None
         if atom_edge_embedding == 'shared':
             self.senders_embedding = nnx.Embed(
-                num_species, num_edge_channels, param_dtype=param_dtype, rngs=rngs
+                num_species, num_edge_channels, dtype=dtype, param_dtype=param_dtype, rngs=rngs
             )
             self.receivers_embedding = nnx.Embed(
-                num_species, num_edge_channels, param_dtype=param_dtype, rngs=rngs
+                num_species, num_edge_channels, dtype=dtype, param_dtype=param_dtype, rngs=rngs
             )
             edge_channels_list[0] += 2 * num_edge_channels
 
         # Initialize conversion between degree l and order m layouts
-        self.mapping_coeffs = mapping_coefficients(lmax, mmax)
+        mapping_coeffs = mapping_coefficients(lmax, mmax)
 
         # Initialize the transformations between spherical and grid representations
-        self.so3_grid = SO3Grid(lmax, mmax, resolution=grid_resolution, dtype=param_dtype)
-        self.so3_grid_lmax = SO3Grid(lmax, lmax, resolution=grid_resolution, dtype=param_dtype)
+        so3_grid = SO3Grid(lmax, mmax, resolution=grid_resolution, dtype=dtype or param_dtype)
+        so3_grid_lmax = SO3Grid(
+            lmax, lmax, resolution=grid_resolution, dtype=dtype or param_dtype
+        )
 
         # Edge-degree embedding
         self.edge_degree_embedding = EdgeDegreeEmbedding(
             sphere_channels,
-            self.mapping_coeffs,
+            mapping_coeffs,
             edge_channels_list,
             atom_edge_embedding == 'isolated',
             num_species=num_species,
             rescale_factor=avg_num_neighbors,
+            dtype=dtype,
             param_dtype=param_dtype,
             rngs=rngs,
         )
@@ -276,9 +292,9 @@ class EquiformerV2Block(nnx.Module):
                 attn_value_channels,
                 ffn_hidden_channels,
                 sphere_channels,
-                self.mapping_coeffs,
-                self.so3_grid,
-                self.so3_grid_lmax,
+                mapping_coeffs,
+                so3_grid,
+                so3_grid_lmax,
                 num_species,
                 edge_channels_list,
                 atom_edge_embedding == 'isolated',
@@ -289,6 +305,7 @@ class EquiformerV2Block(nnx.Module):
                 norm_type,
                 alpha_drop,
                 drop_path_rate,
+                dtype=dtype,
                 param_dtype=param_dtype,
                 rngs=rngs,
             )
@@ -299,6 +316,7 @@ class EquiformerV2Block(nnx.Module):
             norm_type,
             lmax=lmax,
             num_channels=sphere_channels,
+            dtype=dtype,
             param_dtype=param_dtype,
             rngs=rngs,
         )
@@ -307,13 +325,39 @@ class EquiformerV2Block(nnx.Module):
             ffn_hidden_channels,
             1,
             lmax,
-            self.so3_grid_lmax,
+            so3_grid_lmax,
             ff_type,
+            dtype=dtype,
             param_dtype=param_dtype,
             rngs=rngs,
         )
+        if predict_forces:
+            self.force_block = SO2EquivariantGraphAttention(
+                sphere_channels,
+                attn_hidden_channels,
+                num_heads,
+                attn_alpha_channels,
+                attn_value_channels,
+                1,
+                mapping_coeffs,
+                so3_grid,
+                num_species,
+                edge_channels_list,
+                atom_edge_embedding == 'isolated',
+                use_m_share_rad,
+                use_attn_renorm,
+                attn_act_type,
+                alpha_drop=0.0,
+                dtype=dtype,
+                param_dtype=param_dtype,
+                rngs=rngs,
+            )
+        else:
+            self.force_block = None
 
-        self.so3_rotation = SO3Rotation(lmax, mmax, self.mapping_coeffs.perm, dtype=param_dtype)
+        self.so3_rotation = SO3Rotation(lmax, mmax, mapping_coeffs.perm, dtype=dtype or param_dtype)
+
+        self.regess_forces = predict_forces
 
     def __call__(
         self,
@@ -327,16 +371,16 @@ class EquiformerV2Block(nnx.Module):
         num_atoms = len(node_species)
 
         # Initialize the WignerD matrices and other values for spherical harmonic calculations
-        rot_alpha, rot_beta = xyz_to_angles(edge_vectors)
         if not self.deterministic:
             assert rngs is not None
             rot_gamma = jax.random.uniform(
-                rngs['rotation'](), shape=rot_alpha.shape, maxval=2 * jnp.pi
+                rngs['rotation'](), shape=len(edge_vectors), maxval=2 * jnp.pi,
+                dtype=edge_vectors.dtype
             )
         else:
-            rot_gamma = jnp.zeros_like(rot_alpha)
+            rot_gamma = jnp.zeros(len(edge_vectors), dtype=edge_vectors.dtype)
 
-        wigner_matrices = self.so3_rotation.create_wigner_matrices(rot_alpha, rot_beta, rot_gamma)
+        wigner_matrices = self.so3_rotation.create_wigner_matrices(edge_vectors, rot_gamma)
 
         # Initialize the l = 0, m = 0 coefficients
         node_feats_0 = self.sphere_embedding(node_species)[:, None]
@@ -381,6 +425,20 @@ class EquiformerV2Block(nnx.Module):
 
         node_energies = self.energy_block(node_feats)
         node_energies = node_energies[:, 0, 0] / self.avg_num_nodes
+
+        if self.regess_forces:
+            forces = self.force_block(
+                node_feats,
+                node_species,
+                edge_distances,
+                senders,
+                receivers,
+                wigner_matrices,
+                rngs=rngs,
+            )
+            forces = forces[:, 1:4, 0]
+            return node_energies, forces
+
         return node_energies
 
 
@@ -438,12 +496,13 @@ class EquiformerV2Layer(nnx.Module):
         alpha_drop: float = 0.0,
         drop_path_rate: float = 0.0,
         *,
+        dtype: Dtype | None = None,
         param_dtype: Dtype = jnp.float32,
         rngs: nnx.Rngs,
     ):
         self.norm_1 = get_layernorm_layer(
             norm_type, lmax=mapping_coeffs.lmax, num_channels=sphere_channels,
-            param_dtype=param_dtype, rngs=rngs,
+            dtype=dtype, param_dtype=param_dtype, rngs=rngs,
         )
 
         self.graph_attn = SO2EquivariantGraphAttention(
@@ -462,6 +521,7 @@ class EquiformerV2Layer(nnx.Module):
             use_attn_renorm=use_attn_renorm,
             attn_act_type=attn_act_type,
             alpha_drop=alpha_drop,
+            dtype=dtype,
             param_dtype=param_dtype,
             rngs=rngs,
         )
@@ -472,7 +532,7 @@ class EquiformerV2Layer(nnx.Module):
 
         self.norm_2 = get_layernorm_layer(
             norm_type, lmax=mapping_coeffs.lmax, num_channels=sphere_channels,
-            param_dtype=param_dtype, rngs=rngs,
+            dtype=dtype, param_dtype=param_dtype, rngs=rngs,
         )
 
         self.ffn = FeedForwardNetwork(
@@ -482,6 +542,7 @@ class EquiformerV2Layer(nnx.Module):
             lmax=mapping_coeffs.lmax,
             so3_grid_lmax=so3_grid_lmax,
             ff_type=ff_type,
+            dtype=dtype,
             param_dtype=param_dtype,
             rngs=rngs,
         )
@@ -489,7 +550,7 @@ class EquiformerV2Layer(nnx.Module):
         if sphere_channels != output_channels:
             self.ffn_shortcut = SO3LinearV2(
                 sphere_channels, output_channels, lmax=mapping_coeffs.lmax,
-                param_dtype=param_dtype, rngs=rngs,
+                dtype=dtype, param_dtype=param_dtype, rngs=rngs,
             )
         else:
             self.ffn_shortcut = None

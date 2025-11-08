@@ -17,7 +17,7 @@ from enum import Enum
 import jax
 import jax.numpy as jnp
 from flax import nnx
-from flax.nnx.nn import initializers
+from flax.nnx.nn import initializers, dtypes
 from flax.typing import Dtype
 
 from dipm.layers.escn.utils import expand_index
@@ -32,13 +32,10 @@ class EquivariantLayerNormArray(nnx.Module):
         affine: bool = True,
         normalization: str = "component",
         *,
+        dtype: Dtype | None = None,
         param_dtype: Dtype = jnp.float32,
         rngs: nnx.Rngs
     ):
-        self.lmax = lmax
-        self.eps = eps
-        self.affine = affine
-
         if affine:
             self.affine_weight = nnx.Param(
                 initializers.ones(rngs.params(), (lmax + 1, num_channels), param_dtype)
@@ -50,12 +47,23 @@ class EquivariantLayerNormArray(nnx.Module):
             self.affine_weight = None
             self.affine_bias = None
 
+        self.lmax = lmax
+        self.eps = eps
+        self.affine = affine
         self.normalization = normalization
+        self.dtype = dtype
 
     def __call__(self, node_input: jax.Array):
         """
         Assume input is of shape [N, sphere_basis, C]
         """
+
+        affine_weight = self.affine_weight.value if self.affine_weight is not None else None
+        affine_bias = self.affine_bias.value if self.affine_bias is not None else None
+
+        node_input, affine_weight, affine_bias = dtypes.promote_dtype(
+            (node_input, affine_weight, affine_bias), dtype=self.dtype
+        )
 
         out = []
 
@@ -87,13 +95,13 @@ class EquivariantLayerNormArray(nnx.Module):
             feature_norm = jnp.pow(feature_norm + self.eps, -0.5)
 
             if self.affine:
-                weight = self.affine_weight.value[None, lval:lval+1]  # [1, 1, C]
+                weight = affine_weight[None, lval:lval+1]  # [1, 1, C]
                 feature_norm = feature_norm * weight  # [N, 1, C]
 
             feature = feature * feature_norm
 
             if self.affine and lval == 0:
-                bias = self.affine_bias.value[None, None]
+                bias = affine_bias[None, None]
                 feature = feature + bias
 
             out.append(feature)
@@ -118,18 +126,14 @@ class EquivariantLayerNormArraySphericalHarmonics(nnx.Module):
         normalization: str = "component",
         std_balance_degrees: bool = True,
         *,
+        dtype: Dtype | None = None,
         param_dtype: Dtype = jnp.float32,
         rngs: nnx.Rngs
     ):
-        self.lmax = lmax
-        self.eps = eps
-        self.affine = affine
-        self.std_balance_degrees = std_balance_degrees
-
         # for L = 0
         self.norm_l0 = nnx.LayerNorm(
             num_channels, epsilon=eps, use_bias=affine, use_scale=affine,
-            param_dtype=param_dtype, rngs=rngs
+            dtype=dtype, param_dtype=param_dtype, rngs=rngs
         )
 
         # for L > 0
@@ -143,21 +147,33 @@ class EquivariantLayerNormArraySphericalHarmonics(nnx.Module):
         self.normalization = normalization
 
         if std_balance_degrees:
-            balance_degree_weight = jnp.zeros(((lmax + 1) ** 2 - 1, 1))
+            balance_degree_weight = jnp.zeros(((lmax + 1) ** 2 - 1, 1), dtype=dtype)
             for lval in range(1, lmax + 1):
                 start_idx = lval**2 - 1
                 length = 2 * lval + 1
                 balance_degree_weight = balance_degree_weight.at[
                     start_idx : (start_idx + length), :
                 ].set(1.0 / length)
-            self.balance_degree_weight = balance_degree_weight / lmax
+            self.balance_degree_weight = nnx.Cache(balance_degree_weight / lmax)
         else:
             self.balance_degree_weight = None
+
+        self.lmax = lmax
+        self.eps = eps
+        self.affine = affine
+        self.std_balance_degrees = std_balance_degrees
+        self.dtype = dtype
 
     def __call__(self, node_input: jax.Array):
         """
         Assume input is of shape [N, sphere_basis, C]
         """
+
+        affine_weight = self.affine_weight.value if self.affine_weight is not None else None
+
+        node_input, affine_weight = dtypes.promote_dtype(
+            (node_input, affine_weight), dtype=self.dtype
+        )
 
         out = []
 
@@ -184,7 +200,7 @@ class EquivariantLayerNormArraySphericalHarmonics(nnx.Module):
                     feature_norm = jnp.einsum(
                         "nic, ia -> nac",
                         feature_norm,
-                        self.balance_degree_weight,
+                        self.balance_degree_weight.value,
                     )  # [N, 1, C]
                 else:
                     feature_norm = jnp.mean(
@@ -202,7 +218,7 @@ class EquivariantLayerNormArraySphericalHarmonics(nnx.Module):
                 # [N, (2L + 1), C]
                 feature = node_input[:, start_idx : start_idx+length]
                 if self.affine:
-                    weight = self.affine_weight.value[None, lval-1:lval] # [1, 1, C]
+                    weight = affine_weight[None, lval-1:lval] # [1, 1, C]
                     feature_scale = feature_norm * weight  # [N, 1, C]
                 else:
                     feature_scale = feature_norm
@@ -230,14 +246,10 @@ class EquivariantRMSNormArraySphericalHarmonicsV2(nnx.Module):
         centering: bool = True,
         std_balance_degrees: bool = True,
         *,
+        dtype: Dtype | None = None,
         param_dtype: Dtype = jnp.float32,
         rngs: nnx.Rngs
     ):
-        self.eps = eps
-        self.affine = affine
-        self.centering = centering
-        self.std_balance_degrees = std_balance_degrees
-
         # for L >= 0
         if affine:
             self.affine_weight = nnx.Param(
@@ -253,28 +265,41 @@ class EquivariantRMSNormArraySphericalHarmonicsV2(nnx.Module):
             self.affine_weight = None
             self.affine_bias = None
 
-        self.normalization = normalization
         if normalization == "norm":
             assert not std_balance_degrees
 
-        self.expand_index = expand_index(lmax)
+        self.expand_index = nnx.Cache(expand_index(lmax))
 
-        if self.std_balance_degrees:
-            balance_degree_weight = jnp.zeros(((lmax + 1) ** 2, 1))
+        if std_balance_degrees:
+            balance_degree_weight = jnp.zeros(((lmax + 1) ** 2, 1), dtype=dtype)
             for lval in range(lmax + 1):
                 start_idx = lval**2
                 length = 2 * lval + 1
                 balance_degree_weight = balance_degree_weight.at[
                     start_idx : (start_idx + length), :
                 ].set(1.0 / length)
-            self.balance_degree_weight = balance_degree_weight / (lmax + 1)
+            self.balance_degree_weight = nnx.Cache(balance_degree_weight / (lmax + 1))
         else:
             self.balance_degree_weight = None
+
+        self.eps = eps
+        self.affine = affine
+        self.centering = centering
+        self.std_balance_degrees = std_balance_degrees
+        self.normalization = normalization
+        self.dtype = dtype
 
     def __call__(self, node_input: jax.Array):
         """
         Assume input is of shape [N, sphere_basis, C]
         """
+
+        affine_weight = self.affine_weight.value if self.affine_weight is not None else None
+        affine_bias = self.affine_bias.value if self.affine_bias is not None else None
+
+        node_input, affine_weight, affine_bias = dtypes.promote_dtype(
+            (node_input, affine_weight, affine_bias), dtype=self.dtype
+        )
 
         feature = node_input
 
@@ -295,7 +320,7 @@ class EquivariantRMSNormArraySphericalHarmonicsV2(nnx.Module):
             if self.std_balance_degrees:
                 feature_norm = jnp.pow(feature, 2)  # [N, (L_max + 1)**2, C]
                 feature_norm = jnp.einsum(
-                    "nic, ia -> nac", feature_norm, self.balance_degree_weight
+                    "nic, ia -> nac", feature_norm, self.balance_degree_weight.value
                 )  # [N, 1, C]
             else:
                 feature_norm = jnp.mean(
@@ -309,14 +334,14 @@ class EquivariantRMSNormArraySphericalHarmonicsV2(nnx.Module):
 
         if self.affine:
             # [1, (L_max + 1)**2, C]
-            weight = self.affine_weight.value[None, self.expand_index]
+            weight = affine_weight[None, self.expand_index.value]
             feature_norm = feature_norm * weight  # [N, (L_max + 1)**2, C]
 
         out = feature * feature_norm
 
         if self.affine and self.centering:
             out = out.at[:, 0:1, :].set(
-                out[:, 0:1] + self.affine_bias.value[None, None]
+                out[:, 0:1] + affine_bias[None, None]
             )
 
         return out
@@ -341,6 +366,7 @@ def get_layernorm_layer(
     affine: bool = True,
     normalization: str = "component",
     *,
+    dtype: Dtype | None = None,
     param_dtype: Dtype = jnp.float32,
     rngs: nnx.Rngs
 ):
@@ -352,4 +378,4 @@ def get_layernorm_layer(
     }
     norm_class = norm_type_map[LayerNormType(norm_type)]
     return norm_class(lmax, num_channels, eps, affine, normalization,
-                      param_dtype=param_dtype, rngs=rngs)
+                      dtype=dtype, param_dtype=param_dtype, rngs=rngs)

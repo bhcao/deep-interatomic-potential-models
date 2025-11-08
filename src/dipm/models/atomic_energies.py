@@ -23,6 +23,7 @@ def get_atomic_energies(
     dataset_info: DatasetInfo,
     atomic_energies_input: str | dict[int, float] | None = None,
     num_species: int | None = None,
+    dtype: jnp.dtype = jnp.float32,
 ) -> jax.Array:
     """Converts an input description of atomic energies into the atomic energies array.
 
@@ -51,6 +52,7 @@ def get_atomic_energies(
         num_species: Number of species for the model. It can be `None` (default), which
                      means that the number of species is inferred from the given
                      dataset info.
+        dtype: The dtype of the output array.
 
     Returns:
         The atomic energies as an array of size number of species.
@@ -86,4 +88,4 @@ def get_atomic_energies(
             f"len(z_table.zs)={len(z_table.zs)} > num_species={num_species}"
         )
 
-    return atomic_energies
+    return jnp.asarray(atomic_energies, dtype=dtype)

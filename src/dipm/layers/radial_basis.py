@@ -19,7 +19,7 @@ import jax
 import jax.numpy as jnp
 from flax import nnx
 from flax.typing import Dtype
-from flax.nnx.nn import initializers
+from flax.nnx.nn import initializers, dtypes
 import e3nn_jax as e3nn
 
 from dipm.layers.radial_embeddings import CosineCutoff
@@ -32,6 +32,7 @@ class ExpNormalSmearing(nnx.Module):
         num_rbf: int = 50,
         trainable: bool = True,
         *,
+        dtype: Dtype | None = None,
         param_dtype: Dtype = jnp.float32,
         rngs: nnx.Rngs,
     ):
@@ -49,9 +50,11 @@ class ExpNormalSmearing(nnx.Module):
                 initializers.constant(betas)(betas_key, (num_rbf,), param_dtype)
             )
         else:
-            self.means = means
-            self.betas = betas
+            self.means = nnx.Cache(means)
+            self.betas = nnx.Cache(betas)
         self.cutoff_fn = CosineCutoff(cutoff)
+
+        self.dtype = dtype
 
     def _initial_params(self, cutoff, num_rbf):
         start_value = jnp.exp(-cutoff)
@@ -60,8 +63,9 @@ class ExpNormalSmearing(nnx.Module):
         return means, betas
 
     def __call__(self, dist: jax.Array) -> jax.Array:
-        betas = self.betas.value if self.trainable else self.betas
-        means = self.means.value if self.trainable else self.means
+        dist, betas, means = dtypes.promote_dtype(
+            (dist, self.betas.value, self.means.value), dtype=self.dtype
+        )
 
         dist = dist[..., None]
         cutoffs = self.cutoff_fn(dist)
@@ -78,6 +82,7 @@ class GaussianSmearing(nnx.Module):
         trainable: bool = True,
         rbf_width: float = 1.0,
         *,
+        dtype: Dtype | None = None,
         param_dtype: Dtype = jnp.float32,
         rngs: nnx.Rngs,
     ):
@@ -94,9 +99,11 @@ class GaussianSmearing(nnx.Module):
                 initializers.constant(coeff)(coeff_key, (), param_dtype)
             )
         else:
-            self.offset = offset
-            self.coeff = coeff
+            self.offset = nnx.Cache(offset)
+            self.coeff = nnx.Cache(coeff)
         self.cutoff_fn = CosineCutoff(cutoff)
+
+        self.dtype = dtype
 
     def _initial_params(self, cutoff, num_rbf, rbf_width):
         offset = jnp.linspace(0, cutoff, num_rbf)
@@ -104,8 +111,9 @@ class GaussianSmearing(nnx.Module):
         return offset, coeff
 
     def __call__(self, dist: jax.Array) -> jax.Array:
-        offset = self.offset.value if self.trainable else self.offset
-        coeff = self.coeff.value if self.trainable else self.coeff
+        dist, offset, coeff = dtypes.promote_dtype(
+            (dist, self.offset.value, self.coeff.value), dtype=self.dtype
+        )
 
         dist = dist[..., None] - offset
         cutoffs = self.cutoff_fn(dist)

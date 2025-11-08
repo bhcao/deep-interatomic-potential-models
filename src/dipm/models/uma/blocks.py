@@ -21,7 +21,7 @@ from enum import Enum
 
 from flax import nnx
 from flax.typing import Dtype
-from flax.nnx.nn import initializers
+from flax.nnx.nn import initializers, dtypes
 import jax
 import jax.numpy as jnp
 
@@ -33,7 +33,6 @@ from dipm.layers.escn import (
     WignerMatrices,
     SO3LinearV2,
     SO2Convolution,
-    order_mask,
 )
 from dipm.models.force_model import PrecallInterface
 
@@ -61,6 +60,7 @@ class Edgewise(nnx.Module, PrecallInterface):
         act_type: ActivationType = ActivationType.GATE,
         num_experts: int = 0,
         *,
+        dtype: Dtype | None = None,
         param_dtype: Dtype = jnp.float32,
         rngs: nnx.Rngs,
     ):
@@ -82,6 +82,7 @@ class Edgewise(nnx.Module, PrecallInterface):
             edge_channels_list=edge_channels_list,
             extra_m0_output_channels=extra_m0_output_channels,
             num_experts=num_experts,
+            dtype=dtype,
             param_dtype=param_dtype,
             rngs=rngs,
         )
@@ -91,11 +92,10 @@ class Edgewise(nnx.Module, PrecallInterface):
             sphere_channels,
             mapping_coeffs,
             num_experts=num_experts,
+            dtype=dtype,
             param_dtype=param_dtype,
             rngs=rngs,
         )
-
-        self.out_mask = order_mask(mapping_coeffs.lmax, mapping_coeffs.mmax)
 
     @PrecallInterface.context_handler
     def __call__(
@@ -137,6 +137,7 @@ class SpectralAtomwise(nnx.Module):
         hidden_channels: int,
         lmax: int,
         *,
+        dtype: Dtype | None = None,
         param_dtype: Dtype = jnp.float32,
         rngs: nnx.Rngs,
     ):
@@ -144,6 +145,7 @@ class SpectralAtomwise(nnx.Module):
             nnx.Linear(
                 sphere_channels,
                 lmax * hidden_channels,
+                dtype=dtype,
                 param_dtype=param_dtype,
                 rngs=rngs,
             ),
@@ -152,12 +154,12 @@ class SpectralAtomwise(nnx.Module):
 
         self.so3_linear_1 = SO3LinearV2(
             sphere_channels, hidden_channels, lmax,
-            param_dtype=param_dtype, rngs=rngs
+            dtype=dtype, param_dtype=param_dtype, rngs=rngs
         )
         self.act = GateActivation(lmax, lmax, hidden_channels)
         self.so3_linear_2 = SO3LinearV2(
             hidden_channels, sphere_channels, lmax,
-            param_dtype=param_dtype, rngs=rngs
+            dtype=dtype, param_dtype=param_dtype, rngs=rngs
         )
 
     def __call__(self, node_feats: jax.Array):
@@ -175,6 +177,7 @@ class GridAtomwise(nnx.Module):
         hidden_channels: int,
         so3_grid_lmax: SO3Grid,
         *,
+        dtype: Dtype | None = None,
         param_dtype: Dtype = jnp.float32,
         rngs: nnx.Rngs,
     ):
@@ -182,13 +185,13 @@ class GridAtomwise(nnx.Module):
 
         self.grid_mlp = nnx.Sequential(
             nnx.Linear(sphere_channels, hidden_channels, use_bias=False,
-                       param_dtype=param_dtype, rngs=rngs),
+                       dtype=dtype, param_dtype=param_dtype, rngs=rngs),
             nnx.silu,
             nnx.Linear(hidden_channels, hidden_channels, use_bias=False,
-                       param_dtype=param_dtype, rngs=rngs),
+                       dtype=dtype, param_dtype=param_dtype, rngs=rngs),
             nnx.silu,
             nnx.Linear(hidden_channels, sphere_channels, use_bias=False,
-                       param_dtype=param_dtype, rngs=rngs),
+                       dtype=dtype, param_dtype=param_dtype, rngs=rngs),
         )
 
     def __call__(self, node_feats):
@@ -199,52 +202,49 @@ class GridAtomwise(nnx.Module):
 
 
 class ChargeSpinDatasetEmbed(nnx.Module):
-    '''
-    Embeds the charge, spin and dataset information.
-    
-    Args:
-        dataset_alias: Default to `mptrj -> omat`, `salex -> omat`.
-    '''
+    '''Embeds the charge, spin and dataset information.'''
     def __init__(
         self,
         num_channels: int,
-        dataset_list: list[str] | None = None,
-        dataset_alias: dict[str, str] | None = None,
+        dataset_size: int | None = None,
         *,
+        dtype: Dtype | None = None,
         param_dtype: Dtype = jnp.float32,
         rngs: nnx.Rngs,
     ):
         # [-100, 100]
-        self.charge_emb = nnx.Embed(201, num_channels, param_dtype=param_dtype, rngs=rngs)
+        self.charge_emb = nnx.Embed(
+            201, num_channels, dtype=dtype, param_dtype=param_dtype, rngs=rngs
+        )
         # [0, 100]
-        self.spin_emb = nnx.Embed(101, num_channels, param_dtype=param_dtype, rngs=rngs)
+        self.spin_emb = nnx.Embed(
+            101, num_channels, dtype=dtype, param_dtype=param_dtype, rngs=rngs
+        )
 
-        self.dataset_list = dataset_list
-        if dataset_list is not None:
+        self.dataset_size = dataset_size
+        if dataset_size is not None:
             self.dataset_emb = nnx.Embed(
-                len(dataset_list), num_channels, param_dtype=param_dtype, rngs=rngs,
+                dataset_size, num_channels, dtype=dtype, param_dtype=param_dtype, rngs=rngs
             )
-            self.dataset_alias = dataset_alias
-            if dataset_alias is None:
-                self.dataset_alias = {"mptrj": "omat", "salex": "omat"}
 
         # Embed + Linear is mathematically equivalent to one_hot + Linear or Embed + add + bais
         self.bais = nnx.Param(initializers.zeros(rngs.params(), (num_channels,), param_dtype))
+        self.dtype = dtype
 
     def __call__(
         self,
         charge: jax.Array,
         spin: jax.Array,
-        datasets: list[str] | None = None,
+        dataset: jax.Array | None = None,
     ):
+        bais, = dtypes.promote_dtype((self.bais.value,), dtype=self.dtype)
         charge_emb = self.charge_emb(charge + 100)
         spin_emb = self.spin_emb(spin)
         embeddings = charge_emb + spin_emb
 
-        if self.dataset_list is not None:
-            ds_idx = [self.dataset_list.index(self.dataset_alias.get(d, d)) for d in datasets]
-            dataset_emb = self.dataset_emb(jnp.array(ds_idx, dtype=jnp.int32))
+        if self.dataset_size is not None:
+            dataset_emb = self.dataset_emb(dataset)
             embeddings += dataset_emb
 
-        embeddings += self.bais.value
+        embeddings += bais
         return nnx.silu(embeddings)

@@ -1,6 +1,6 @@
 .. _evaluation:
 
-.. module:: mlip.training.evaluation
+.. module:: dipm.training.evaluation
 
 Model evaluation
 ================

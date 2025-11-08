@@ -48,7 +48,6 @@ class Loss(abc.ABC):
         Returns:
             The loss and the auxiliary metrics dictionary.
         """
-        pass
 
 
 class WeightedEFSLoss(Loss, abc.ABC):

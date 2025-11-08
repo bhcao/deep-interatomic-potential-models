@@ -1,7 +1,7 @@
 [project]
 name = "dipm_cvt"
 version = "0.0.1"
-description = "Dataset and model file conversion tools for DIPM"
+description = "Dataset and model file conversion tool for DIPM"
 license = "Apache 2.0"
 authors = [
     {name = "Cao Bohan", email = "caobohan@mail.nankai.edu.cn"},

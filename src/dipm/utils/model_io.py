@@ -14,17 +14,21 @@
 
 import json
 import os
+import logging
 from typing import Type
 
 import jax.numpy as jnp
 from flax import nnx
 from flax.nnx.traversals import unflatten_mapping
+from flax.typing import Dtype
 from safetensors.flax import save_file, safe_open
 
 from dipm.data import DatasetInfo
-from dipm.models import ForceFieldPredictor
+from dipm.models import ForceFieldPredictor, KNOWN_MODELS
 
 PARAMETER_MODULE_DELIMITER = "."
+
+logger = logging.getLogger('dipm')
 
 
 def save_model(
@@ -36,7 +40,7 @@ def save_model(
     Args:
         save_path: The target path to the model file. Should have extension ".safetensors".
         model: The force field model to save.
-               Must be passed as type :class:`~dipm.models.force_field.ForceField`.
+               Must be passed as type :class:`~dipm.models.force_field.ForceFieldPredictor`.
     """
     hyperparams = {
         "dataset_info": model.dataset_info.model_dump_json(),
@@ -45,7 +49,13 @@ def save_model(
         "seed": str(model.seed)
     }
 
-    _, state = nnx.split(model.force_model)
+    # Add model type to hyperparams if model is known
+    for k, v in KNOWN_MODELS.items():
+        if isinstance(model.force_model, v):
+            hyperparams["target"] = k
+            break
+
+    state = nnx.state(model.force_model, [nnx.Param, nnx.BatchStat])
 
     params_flattened = {
         PARAMETER_MODULE_DELIMITER.join([str(i) for i in key_as_tuple]): array
@@ -57,21 +67,30 @@ def save_model(
 
 def _key2tuple(key: str) -> tuple:
     key_sep = key.split(PARAMETER_MODULE_DELIMITER)
-    for i in range(len(key_sep)):
-        if key_sep[i].isdigit():
-            key_sep[i] = int(key_sep[i])
+    for i, part in enumerate(key_sep):
+        if part.isdigit():
+            key_sep[i] = int(part)
     return tuple(key_sep)
 
 
 def load_model(
-    model_type: Type[nnx.Module],
     load_path: str | os.PathLike,
+    model_type: Type[nnx.Module] | None = None,
+    dtype: Dtype | None = None,
+    drop_force_head: bool = True,
 ) -> ForceFieldPredictor:
     """Loads a model from a safetensors file and returns it wrapped as a `ForceFieldPredictor`.
 
     Args:
-        model_type: The model class that corresponds to the saved model.
         load_path: The path to the safetensors file to load.
+        model_type (optional): The model class that corresponds to the saved model. If you are
+            using a known model listed in `dipm.models.KNOWN_MODELS`, this argument can be optional
+            and inferred from the saved metadata. Otherwise, it must be provided.
+        dtype (optional): The dtype in computations. If not provided, it will be the same as the
+            the parameters dtype.
+        drop_force_head (optional): If Ture, the head of the forces will be dropped if it exists
+            in the saved model. Default is ``True`` because it is not recommended to use the head
+            of the forces in inferece.
 
     Returns:
         The loaded model wrapped
@@ -81,20 +100,44 @@ def load_model(
     params_raw = {}
     with safe_open(load_path, framework="flax") as f:
         for k in f.offset_keys():
-            params_raw[_key2tuple(k)] = jnp.asarray(f.get_tensor(k))
+            params_raw[k] = jnp.asarray(f.get_tensor(k))
         metadata = f.metadata()
 
     # load metadata
     hyperparams_raw = {}
     for k, v in metadata.items():
-        hyperparams_raw[k] = json.loads(v)
+        if k == "target":
+            if v not in KNOWN_MODELS:
+                raise ValueError(f"Model type {v} is unknown.")
+            hyperparams_raw[k] = KNOWN_MODELS[v]
+        else:
+            hyperparams_raw[k] = json.loads(v)
 
-    params = unflatten_mapping(params_raw)
+    if model_type is None:
+        if "target" not in hyperparams_raw:
+            raise ValueError(
+                f"Model type is neither present in the metadata of {load_path} nor provided."
+            )
+        model_type = hyperparams_raw["target"]
+
+    model_config = model_type.Config(**hyperparams_raw["config"])
+
+    # drop forces head if requested
+    if drop_force_head and hasattr(model_config, "force_head") and model_config.force_head:
+        prefix = model_type.force_head_prefix
+        for k in list(params_raw.keys()):
+            if k.startswith(prefix):
+                del params_raw[k]
+        model_config.force_head = False
+        logger.info("Forces head has been dropped from the loaded model.")
+
+    params = unflatten_mapping({_key2tuple(k): v for k, v in params_raw})
 
     # Config(**hyperparams_raw["config"]) will be called by ForceModel.__init__
     model = model_type(
-        config=hyperparams_raw["config"],
+        config=model_config,
         dataset_info=DatasetInfo(**hyperparams_raw["dataset_info"]),
+        dtype=dtype,
         rngs=nnx.Rngs(hyperparams_raw["seed"])
     )
 
@@ -104,4 +147,6 @@ def load_model(
     model = nnx.merge(graphdef, state)
 
     # `seed` is store only for next load
-    return ForceFieldPredictor(model, hyperparams_raw["predict_stress"], seed=hyperparams_raw["seed"])
+    return ForceFieldPredictor(
+        model, hyperparams_raw["predict_stress"], seed=hyperparams_raw["seed"]
+    )

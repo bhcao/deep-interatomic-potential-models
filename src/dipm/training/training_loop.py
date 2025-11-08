@@ -29,13 +29,13 @@ import optax
 from dipm.data.helpers.data_prefetching import PrefetchIterator
 from dipm.data.helpers.graph_dataset import GraphDataset
 from dipm.models import ForceFieldPredictor
-from dipm.loss.loss import Loss
+from dipm.loss import Loss
 from dipm.training.optimizer import EMATracker
 from dipm.training.evaluation import make_evaluation_step, run_evaluation
 from dipm.training.training_io_handler import LogCategory, TrainingIOHandler
 from dipm.training.training_loggers import log_metrics_to_line
-from dipm.training.training_loop_config import TrainingLoopConfig
-from dipm.training.training_step import TrainingState, make_train_step
+from dipm.training.configs import TrainingLoopConfig
+from dipm.training.training_step import TrainingState, TrainingStateVar, make_train_step
 
 GraphDatasetOrPrefetchIterator: TypeAlias = GraphDataset | PrefetchIterator
 TrainingStepFun: TypeAlias = Callable[
@@ -51,30 +51,30 @@ def _count_parameters(model: nnx.Module) -> int:
 
 
 class _TrainingLog:
-    def __init__(self, num_steps: int):
-        self.num_steps = num_steps
-        self.last_log_step = 0
+    def __init__(self, num_steps):
+        self.last_log_step = num_steps
         self.metrics: list[dict] = []
         self.start_time = time.perf_counter()
 
     def append(self, metrics: dict) -> None:
         '''Appends metrics of a training.'''
         self.metrics.append(metrics)
-        self.num_steps += 1
 
-    def get(self):
+    def get(self, num_steps: int):
         '''Returns the metrics of the training.'''
         end_time = time.perf_counter()
-        steps = self.num_steps - self.last_log_step
+        steps = num_steps - self.last_log_step
         time_per_step = (end_time - self.start_time) / steps
         metrics = {}
         for metric_name in self.metrics[0].keys():
             metrics[metric_name] = np.mean([m[metric_name] for m in self.metrics])
+        metrics["steps_in_total"] = num_steps
+        metrics["seconds_per_step"] = time_per_step
         # Update
-        self.last_log_step = self.num_steps
+        self.last_log_step = num_steps
         self.start_time = end_time
         self.metrics = []
-        return metrics, time_per_step
+        return metrics
 
 
 class TrainingLoop:
@@ -220,7 +220,7 @@ class TrainingLoop:
 
         train_rngs = nnx.Rngs(42)
 
-        log = _TrainingLog(self.epoch_number * self.steps_per_epoch)
+        log = _TrainingLog(self._get_num_steps_from_training_state())
         while self.epoch_number < self.config.num_epochs:
             self.epoch_number += 1
             self.io_handler.log(LogCategory.EPOCH_START, {}, self.epoch_number)
@@ -256,18 +256,17 @@ class TrainingLoop:
             )
             log.append(jax.device_get(_metrics))
 
-            if log.num_steps % self.config.log_per_steps == 0:
-                metrics, time_per_step = log.get()
-                self._log_after_training_steps(
-                    metrics, self.epoch_number, time_per_step, log.num_steps
-                )
+            num_steps = self._get_num_steps_from_training_state()
+            if num_steps % self.config.log_per_steps == 0:
+                metrics = log.get(num_steps)
+                self._log_after_training_steps(metrics, self.epoch_number)
 
     def _run_evaluation(self) -> None:
         devices = jax.devices() if self.should_parallelize else None
 
         eval_model = self.force_field
         if self.epoch_number != 0 and self.config.use_ema_params_for_eval:
-            eval_model = self._get_model_from_training_state()
+            eval_model = self.ema_model
         eval_model.eval()
         eval_loss = run_evaluation(
             eval_model,
@@ -293,13 +292,13 @@ class TrainingLoop:
             if self.config.use_ema_params_for_eval:
                 self.best_model = eval_model # eval_model is already EMA-ed
             else:
-                self.best_model = self._get_model_from_training_state()
+                self.best_model = self.ema_model
 
             self.io_handler.save_checkpoint(
                 (
-                    flax.jax_utils.unreplicate(self.training_state)
+                    flax.jax_utils.unreplicate(self.training_state.state_dict(ignore_cache=True))
                     if self.should_parallelize
-                    else self.training_state
+                    else self.training_state.state_dict(ignore_cache=True)
                 ),
                 self.epoch_number,
             )
@@ -345,9 +344,7 @@ class TrainingLoop:
     def _prepare_training_state(self, optimizer: optax.GradientTransformation) -> None:
         start_time = time.perf_counter()
 
-        self.optimizer = nnx.Optimizer(
-            self.force_field, optimizer, wrt=[nnx.Param, nnx.BatchStat]
-        )
+        self.optimizer = nnx.Optimizer(self.force_field, optimizer, wrt=nnx.Param)
         self.ema_tracker = EMATracker(
             self.force_field, self.config.ema_decay
         )
@@ -356,9 +353,8 @@ class TrainingLoop:
             predictor=self.force_field,
             optimizer=self.optimizer,
             ema_tracker=self.ema_tracker,
-            num_steps=jnp.array(0),
-            acc_steps=jnp.array(0),
-            extras={},
+            num_steps=TrainingStateVar(jnp.array(0)),
+            acc_steps=TrainingStateVar(jnp.array(0)),
         )
 
         # The following line only restores the training state if the associated
@@ -367,7 +363,7 @@ class TrainingLoop:
 
         # jax.device_put cannot handle nnx.Module directly.
         training_state_dict = jax.device_put(training_state.state_dict())
-        training_state.load_state_dict(training_state_dict)
+        nnx.update(training_state, training_state_dict)
 
         logger.debug(
             "Prepared training state on CPU in %.2f sec.",
@@ -385,17 +381,11 @@ class TrainingLoop:
         if self.should_parallelize:
             # Distribute training state
             start_time = time.perf_counter()
-            training_state = flax.jax_utils.replicate(training_state)
+            training_state_dict = flax.jax_utils.replicate(training_state.state_dict())
+            nnx.update(training_state, training_state_dict)
             logger.debug(
                 "Distributed training state in %.2f sec.",
                 time.perf_counter() - start_time,
-            )
-
-            # Distribute keys
-            start_time = time.perf_counter()
-            training_state.replace(acc_steps = flax.jax_utils.replicate(0))
-            logger.debug(
-                "Distributed keys in %.2f sec.", time.perf_counter() - start_time
             )
 
         self.training_state = training_state
@@ -405,29 +395,25 @@ class TrainingLoop:
 
     def _get_num_steps_from_training_state(self) -> int:
         if self.should_parallelize:
-            return int(self.training_state.num_steps[0].squeeze().block_until_ready())
-        return int(self.training_state.num_steps.squeeze().block_until_ready())
+            return int(self.training_state.num_steps.value[0].squeeze().block_until_ready())
+        return int(self.training_state.num_steps.value.squeeze().block_until_ready())
 
     def _log_after_training_steps(
         self,
         metrics: dict[str, np.ndarray],
         epoch_number: int,
-        time_per_step: float,
-        num_steps: int,
     ) -> None:
         try:
-            opt_hyperparams = jax.device_get(
-                self.training_state.optimizer.opt_state.hyperparams
-            )
-            if self.should_parallelize:
-                opt_hyperparams = flax.jax_utils.unreplicate(opt_hyperparams)
             if self.extended_metrics:
+                opt_hyperparams = jax.device_get(
+                    nnx.to_arrays(nnx.pure(self.training_state.optimizer.opt_state))
+                )
+                if self.should_parallelize:
+                    opt_hyperparams = flax.jax_utils.unreplicate(opt_hyperparams)
                 metrics["learning_rate"] = float(opt_hyperparams["lr"])
         except AttributeError:
             pass
 
-        metrics["steps_in_total"] = num_steps
-        metrics["seconds_per_step"] = time_per_step
         # TODO(bhcao): Add more extended_metrics
 
         self.io_handler.log(LogCategory.TRAIN_METRICS, metrics, epoch_number)
@@ -458,14 +444,8 @@ class TrainingLoop:
 
         return total_num_graphs, total_num_nodes
 
-    def _get_model_from_training_state(self) -> ForceFieldPredictor:
-        devices = jax.devices() if self.should_parallelize else None
-
-        if devices is not None:
-            return jax.pmap(
-                self.training_state.ema_tracker.get_model,
-                axis_name="device",
-                static_broadcasted_argnums=(1,),
-            )()
-
-        return self.training_state.ema_tracker.get_model()
+    @property
+    def ema_model(self) -> ForceFieldPredictor:
+        """Returns the EMA-ed model."""
+        _, other_state = nnx.state(self.force_field, nnx.Param, ...)
+        return self.ema_tracker.get_model(other_state, parallel=self.should_parallelize)

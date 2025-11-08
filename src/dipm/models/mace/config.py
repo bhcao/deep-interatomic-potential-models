@@ -20,7 +20,7 @@ from dipm.layers import (
     Activation,
     RadialEnvelope,
 )
-from dipm.typing.fields import Irreps, NonNegativeInt, PositiveInt
+from dipm.typing import Irreps, NonNegativeInt, PositiveInt, DtypeEnum
 
 
 class MaceConfig(BaseModel):
@@ -84,6 +84,7 @@ class MaceConfig(BaseModel):
                                `species_embedding_dim`. Default is `None`.
                                See our white paper for a description of this option
                                that is not present in the original MACE architecture.
+        param_dtype: The data type of model parameters. Default is ``jnp.float32``.
     """
 
     num_layers: PositiveInt = 2
@@ -105,6 +106,7 @@ class MaceConfig(BaseModel):
     num_species: int | None = None
     gate_nodes: bool = False
     species_embedding_dim: PositiveInt | None = None
+    param_dtype: DtypeEnum = DtypeEnum.F32
 
     @model_validator(mode="after")
     def _validate_readout_irreps(self) -> Self:

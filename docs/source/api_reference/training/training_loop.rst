@@ -1,14 +1,20 @@
 .. _training_loop:
 
-.. module:: mlip.training.training_loop
-
 Training Loop
 =============
 
-.. autoclass:: TrainingLoop
+.. module:: dipm.training.configs
 
-    .. automethod:: __init__
+    .. autoclass:: TrainingLoopConfig
 
-    .. automethod:: run
+        .. automethod:: __init__
 
-    .. automethod:: test
+.. module:: dipm.training.training_loop
+
+    .. autoclass:: TrainingLoop
+
+        .. automethod:: __init__
+
+        .. automethod:: run
+
+        .. automethod:: test

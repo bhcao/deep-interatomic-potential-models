@@ -16,12 +16,15 @@ from dipm.training.optimizer import (
     get_default_mlip_optimizer,
     get_mlip_optimizer_chain_with_flexible_base_optimizer,
 )
-from dipm.training.optimizer_config import OptimizerConfig
-from dipm.training.training_io_handler import TrainingIOHandler, TrainingIOHandlerConfig
+from dipm.training.configs import (
+    OptimizerConfig,
+    TrainingLoopConfig,
+    TrainingIOHandlerConfig,
+)
+from dipm.training.training_io_handler import TrainingIOHandler
 from dipm.training.training_loggers import (
     convert_mse_to_rmse_in_logs,
     log_metrics_to_line,
     log_metrics_to_table,
 )
 from dipm.training.training_loop import TrainingLoop
-from dipm.training.training_loop_config import TrainingLoopConfig

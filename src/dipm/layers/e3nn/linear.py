@@ -30,6 +30,8 @@ from e3nn_jax._src.linear import (
     validate_inputs_for_instructions,
 )
 
+from dipm.layers.dtypes import promote_dtype
+
 
 class Linear(nnx.Module):
     r"""Equivariant Linear Flax module, modified from `e3nn_jax._src.linear_flax.Linear`.
@@ -64,6 +66,7 @@ class Linear(nnx.Module):
         force_irreps_out: bool = False,
         simplify_irreps_internally: bool = True,
         *,
+        dtype: Dtype | None = None,
         param_dtype: Dtype = jnp.float32,
         rngs: nnx.Rngs,
     ):
@@ -115,7 +118,7 @@ class Linear(nnx.Module):
         self.instructions = instructions
         self.force_irreps_out = force_irreps_out
         self.simplify_irreps_internally = simplify_irreps_internally
-
+        self.dtype = dtype
 
     def __call__(self, inputs: e3nn.IrrepsArray) -> e3nn.IrrepsArray:
         """Apply the linear operator.
@@ -128,6 +131,10 @@ class Linear(nnx.Module):
             IrrepsArray: output irreps-array of shape ``(..., [channel_out,] irreps_out.dim)``.
                 Properly normalized assuming that the weights and input are properly normalized.
         """
+        kernels = [param.value for param in self.kernels]
+
+        inputs, kernels = promote_dtype((inputs, kernels), dtype=self.dtype)
+
         if self.simplify_irreps_internally:
             inputs = inputs.remove_zero_chunks().regroup()
 
@@ -141,8 +148,6 @@ class Linear(nnx.Module):
             self.channel_out,
             self.irreps_in,
         )
-
-        kernels = [param.value for param in self.kernels]
 
         def f(x):
             return self.linear_fn(kernels, x)

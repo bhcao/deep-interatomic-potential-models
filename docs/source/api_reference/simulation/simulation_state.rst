@@ -1,6 +1,6 @@
 .. _simulation_state:
 
-.. module:: mlip.simulation.state
+.. module:: dipm.simulation.state
 
 Simulation State
 ================

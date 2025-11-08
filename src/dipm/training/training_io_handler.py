@@ -24,61 +24,26 @@ from collections.abc import Callable
 from typing import Any, TypeAlias
 
 import jax
+from flax import nnx
 import orbax.checkpoint as ocp
-import pydantic
 from orbax.checkpoint import CheckpointManager, CheckpointManagerOptions
-from typing_extensions import Annotated
 
 from dipm.data.dataset_info import DatasetInfo
 from dipm.training.training_step import TrainingState
 from dipm.utils.multihost import single_host_jax_and_orbax
+from dipm.training.configs import TrainingIOHandlerConfig
 
 PathLike: TypeAlias = str | os.PathLike
 Source: TypeAlias = PathLike
 Target: TypeAlias = PathLike
 MODEL_SUBDIR_NAME = "model"
 DATASET_INFO_FILENAME = "dataset_info.json"
-PositiveInt = Annotated[int, pydantic.Field(gt=0)]
-EMADecay = Annotated[float, pydantic.Field(gt=0.0, le=1.0)]
 
 _logger = logging.getLogger("dipm")
 
 
 class CheckpointRestorationError(Exception):
     """Exception to be raised if issues occur during checkpoint restoration."""
-
-
-class TrainingIOHandlerConfig(pydantic.BaseModel):
-    """Pydantic config holding all settings relevant for the training IO handler.
-
-    Attributes:
-        local_model_output_dir: Path to the output directory (local filesystem) where
-                                the model/dataset information and checkpoints are
-                                stored. If `None`, then local checkpointing will be
-                                disabled. Defaults to `None`.
-        max_checkpoints_to_keep: Maximum number of old checkpoints to keep.
-                                 The default is 5.
-        ema_decay: The EMA decay rate. The default is 0.99.
-        restore_checkpoint_if_exists: Whether to restore a previous checkpoint if it
-                                      exists. By default, this is ``False``.
-        epoch_to_restore: The epoch number to restore. The default is ``None``, which
-                          means the latest epoch will be restored.
-        restore_optimizer_state: Whether to also restore the optimizer state.
-                                 Default is ``False``.
-        clear_previous_checkpoints: Whether to clear the previous checkpoints if
-                                    any exist. Note that this setting can not be set to
-                                    ``True`` if one selects to restore a checkpoint.
-                                    The default is ``False``.
-    """
-
-    local_model_output_dir: PathLike | None = None
-    max_checkpoints_to_keep: PositiveInt = 5
-    ema_decay: EMADecay = 0.99
-
-    restore_checkpoint_if_exists: bool = False
-    epoch_to_restore: PositiveInt | None = None
-    restore_optimizer_state: bool = False
-    clear_previous_checkpoints: bool = False
 
 
 class LogCategory(Enum):
@@ -200,13 +165,13 @@ class TrainingIOHandler:
             time.perf_counter() - start_time,
         )
 
-    def save_checkpoint(self, training_state: TrainingState, epoch_number: int) -> None:
+    def save_checkpoint(self, training_state_dict: nnx.State, epoch_number: int) -> None:
         """Saves a model checkpoint to disk.
 
         Uses the data upload function as well if it exists.
 
         Args:
-            training_state: The training state to save.
+            training_state_dict: The nnx.State of the training state to save.
             epoch_number: The current epoch number.
         """
         if self._local_model_output_dir is None:
@@ -218,7 +183,7 @@ class TrainingIOHandler:
             self._future.result()
 
         with single_host_jax_and_orbax():
-            self.ckpt_manager.save(epoch_number, args=ocp.args.StandardSave(training_state.state_dict()))
+            self.ckpt_manager.save(epoch_number, args=ocp.args.StandardSave(training_state_dict))
 
         if self._data_upload_fun is not None:
             self.ckpt_manager.wait_until_finished()
@@ -260,7 +225,7 @@ class TrainingIOHandler:
         with single_host_jax_and_orbax():
             abstract_state = jax.tree_util.tree_map(
                 ocp.utils.to_shape_dtype_struct,
-                training_state.state_dict(),
+                training_state.state_dict(ignore_cache=True),
             )
             ckpt = self.ckpt_manager.restore(
                 epoch_to_restore,
@@ -269,10 +234,11 @@ class TrainingIOHandler:
 
         if self.config.restore_optimizer_state:
             _logger.debug("Restoring params and optimizer state.")
-            training_state.load_state_dict(ckpt)
+            nnx.update(training_state, ckpt)
         else:
             _logger.debug("Restoring params, resetting optimizer state.")
-            training_state.load_state_dict(ckpt, model_only=True)
+            ckpt = {"predictor": ckpt["predictor"]}
+            nnx.update(training_state, ckpt)
 
         _logger.debug(
             "Checkpoint was restored in %.2f sec.", time.perf_counter() - start_time

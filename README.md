@@ -4,12 +4,15 @@
 
 ## 👀 Overview
 
-*dipm* is a enhancement of [MLIP](https://github.com/instadeepai/mlip) standing for **Deep Interatomic Potentials Models (DIPM)**. It provides the following functionality:
+*dipm* is a enhancement of [MLIP](https://github.com/instadeepai/mlip) standing
+for **Deep Interatomic Potentials Models (DIPM)**. It provides the following
+functionality:
+
 - Multiple NNX model architectures (for now: MACE, NequIP, ViSNet, LiTEN, EquiformerV2 and UMA)
 - Dataset loading and preprocessing
 - Training and fine-tuning MLIP models
 - Batched inference with trained MLIP models
-- MD simulations and energy minimizations with JAX-MD backend.
+- MD simulations and energy minimizations with JAX-MD and ASE backend.
 
 The purpose of the library is to provide users with a toolbox
 to deal with MLIP models in true end-to-end fashion.
@@ -29,6 +32,7 @@ to get started. For detailed instructions, visit our extensive
 [code documentation](https://instadeepai.github.io/mlip/).
 
 This repository currently supports implementations of:
+
 - [MACE](https://arxiv.org/abs/2206.07697)
 - [NequIP](https://www.nature.com/articles/s41467-022-29939-5)
 - [ViSNet](https://www.nature.com/articles/s41467-023-43720-2)
@@ -40,6 +44,8 @@ As the backend for equivariant operations, the current version of the code relie
 on the [e3nn](https://zenodo.org/records/6459381) library.
 
 ## 📦 Installation
+
+Please use python 3.10 or later because we rely on type annotations and other features introduced in this version.
 
 *dipm* can be installed via pip like this:
 
@@ -63,14 +69,15 @@ Note that using the TPU version of *jaxlib* is, in principle, also supported by
 this library. However, it has not been thoroughly tested and should therefore be
 considered an experimental feature.
 
-Also, some tasks in *mlip* will
-require [JAX-MD](https://github.com/jax-md/jax-md>) as a dependency. As the newest
-version of JAX-MD is not available on PyPI yet, this dependency will not
-be shipped with *mlip* automatically and instead must be installed
-directly from the GitHub repository, like this:
+Simulation related tasks such as MD or energy minimization will require
+[JAX-MD](https://github.com/jax-md/jax-md) and [ASE](https://gitlab.com/ase/ase)
+as dependencies. ASE can be installed as an optional dependency while the newest
+version of JAX-MD must be installed directly from the GitHub repository to avoid
+critical bugs. Here is the installation commands:
 
 ```bash
 pip install git+https://github.com/jax-md/jax-md.git
+pip install dipm[md]
 ```
 
 Furthermore, note that among our library dependencies we have pinned the versions
@@ -80,7 +87,11 @@ our dependencies in upcoming releases.
 
 ## 📚 Dataset preparation
 
-We only support HDF5 format datasets (compatible with HDF5 used in [MACE](https://github.com/ACEsuit/mace)). We provided a dataset conversion toolkit [DIPM-Cvt](./dipm-conversion-tools) for this purpose. We recommend to install it in a different environment than *dipm* to avoid conflicts. We provided a command-line interface `dipm-cvt-cli` for user-friendly usage.
+We only support HDF5 format datasets (compatible with HDF5 used in
+[MACE](https://github.com/ACEsuit/mace)). We provided a dataset conversion toolkit
+[DIPM-Cvt](./dipm-conversion-tools) for this purpose. We recommend to install it in
+a different environment than *dipm* to avoid conflicts. We provided a command-line
+interface `dipm-cvt-cli` for user-friendly usage.
 
 ## ⚡ Examples
 
@@ -89,9 +100,9 @@ In addition to the in-depth tutorials provided as part of our documentation
 we also provide example Jupyter notebooks that can be used as
 simple templates to build your own MLIP pipelines:
 
-- [Inference and simulation](https://github.com/instadeepai/mlip/blob/main/tutorials/simulation_tutorial.ipynb)
-- [Model training](https://github.com/instadeepai/mlip/blob/main/tutorials/model_training_tutorial.ipynb)
-- [Addition of new models](https://github.com/instadeepai/mlip/blob/main/tutorials/model_addition_tutorial.ipynb)
+- [Inference and simulation](https://github.com/bhcao/deep-interatomic-potential-models/blob/main/tutorials/simulation_tutorial.ipynb)
+- [Model training](https://github.com/bhcao/deep-interatomic-potential-models/blob/main/tutorials/model_training_tutorial.ipynb)
+- [Addition of new models](https://github.com/bhcao/deep-interatomic-potential-models/blob/main/tutorials/model_addition_tutorial.ipynb)
 
 To run the tutorials, just install Jupyter notebooks via pip and launch it from
 a directory that contains the notebooks:

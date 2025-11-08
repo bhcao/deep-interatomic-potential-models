@@ -49,6 +49,7 @@ class EdgeDegreeEmbedding(nnx.Module):
         num_species: int | None = None,
         rescale_factor: float = 5.0,
         *,
+        dtype: Dtype | None = None,
         param_dtype: Dtype = jnp.float32,
         rngs: nnx.Rngs,
     ):
@@ -69,12 +70,12 @@ class EdgeDegreeEmbedding(nnx.Module):
             self.senders_embedding = nnx.Embed(
                 num_species, edge_channels_list[-1],
                 embedding_init=initializers.normal(stddev=0.001), # Why not xavier?
-                param_dtype=param_dtype, rngs=rngs,
+                dtype=dtype, param_dtype=param_dtype, rngs=rngs,
             )
             self.receivers_embedding = nnx.Embed(
                 num_species, edge_channels_list[-1],
                 embedding_init=initializers.normal(stddev=0.001),
-                param_dtype=param_dtype, rngs=rngs,
+                dtype=dtype, param_dtype=param_dtype, rngs=rngs,
             )
             edge_channels_list[0] = (
                 edge_channels_list[0] + 2 * edge_channels_list[-1]
@@ -94,6 +95,7 @@ class EdgeDegreeEmbedding(nnx.Module):
             gradient_normalization=0.0,
             use_bias=True,
             use_act_norm=False,
+            dtype=dtype,
             param_dtype=param_dtype,
             rngs=rngs,
         )
@@ -132,6 +134,7 @@ class EdgeDegreeEmbedding(nnx.Module):
                 (self.m_all_num_coefficents - self.m_0_num_coefficients),
                 self.sphere_channels,
             ),
+            dtype=edge_feats_m_0.dtype,
         )
         # edge_feats: [n_edges, (lmax + 1) ^ 2, num_channels], m primary
         edge_feats = jnp.concat((edge_feats_m_0, edge_feats_m_pad), axis=1)

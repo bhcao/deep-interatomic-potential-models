@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from math import pi, sqrt
 from collections.abc import Callable
 
 import ase
@@ -20,99 +19,11 @@ import jax
 import jax_md
 import jraph
 import numpy as np
+from ase.units import Ang, J, eV, fs, kB, kcal, kg, m, mol, s
 
-from dipm.simulation.jax_md.jax_md_config import JaxMDSimulationConfig
+from dipm.simulation.configs import JaxMDSimulationConfig
 from dipm.simulation.enums import SimulationType
 from dipm.simulation.jax_md.states import SystemState
-
-def create_units():
-    """
-    Physical constants and units derived from CODATA for converting to and from
-    ase internal units. Copied from ase.units.
-    """
-
-    # CODATA 2014 taken from
-    # http://arxiv.org/pdf/1507.07956.pdf
-    u = {
-        '_c': 299_792_458.,             # Exact
-        '_mu0': 4.0e-7 * pi,            # Exact
-        '_Grav': 6.674_08e-11,          # +/- 0.000_31e-11
-        '_hplanck': 6.626_070_040e-34,  # +/- 0.000_000_081e-34
-        '_e': 1.602_176_6208e-19,       # +/- 0.000_000_0098e-19
-        '_me': 9.109_383_56e-31,        # +/- 0.000_000_11e-31
-        '_mp': 1.672_621_898e-27,       # +/- 0.000_000_021e-27
-        '_Nav': 6.022_140_857e23,       # +/- 0.000_000_074e23
-        '_k': 1.380_648_52e-23,         # +/- 0.000_000_79e-23
-        '_amu': 1.660_539_040e-27       # +/- 0.000_000_020e-27
-    }
-
-    # derived from the CODATA values
-    u['_eps0'] = 1 / u['_mu0'] / u['_c']**2  # permittivity of vacuum
-    u['_hbar'] = u['_hplanck'] / (2 * pi)  # Planck constant / 2pi, J s
-
-    u['Ang'] = u['Angstrom'] = 1.0
-    u['nm'] = 10.0
-    u['Bohr'] = (4e10 * pi * u['_eps0'] * u['_hbar']**2 /
-                 u['_me'] / u['_e']**2)  # Bohr radius
-
-    u['eV'] = 1.0
-    u['Hartree'] = (u['_me'] * u['_e']**3 / 16 / pi**2 /
-                    u['_eps0']**2 / u['_hbar']**2)
-    u['kJ'] = 1000.0 / u['_e']
-    u['kcal'] = 4.184 * u['kJ']
-    u['mol'] = u['_Nav']
-    u['Rydberg'] = 0.5 * u['Hartree']
-    u['Ry'] = u['Rydberg']
-    u['Ha'] = u['Hartree']
-
-    u['second'] = 1e10 * sqrt(u['_e'] / u['_amu'])
-    u['fs'] = 1e-15 * u['second']
-
-    u['kB'] = u['_k'] / u['_e']  # Boltzmann constant, eV/K
-
-    u['Pascal'] = (1 / u['_e']) / 1e30  # J/m^3
-    u['GPa'] = 1e9 * u['Pascal']
-    u['bar'] = 1e5 * u['Pascal']
-
-    u['Debye'] = 1.0 / 1e11 / u['_e'] / u['_c']
-    u['alpha'] = (u['_e']**2 / (4 * pi * u['_eps0']) /
-                  u['_hbar'] / u['_c'])  # fine structure constant
-    u['invcm'] = (100 * u['_c'] * u['_hplanck'] /
-                  u['_e'])  # cm^-1 energy unit
-
-    # Derived atomic units that have no assigned name:
-    # atomic unit of time, s:
-    u['_aut'] = u['_hbar'] / (u['alpha']**2 * u['_me'] * u['_c']**2)
-    # atomic unit of velocity, m/s:
-    u['_auv'] = u['_e']**2 / u['_hbar'] / (4 * pi * u['_eps0'])
-    # atomic unit of force, N:
-    u['_auf'] = u['alpha']**3 * u['_me']**2 * u['_c']**3 / u['_hbar']
-    # atomic unit of pressure, Pa:
-    u['_aup'] = u['alpha']**5 * u['_me']**4 * u['_c']**5 / u['_hbar']**3
-
-    u['AUT'] = u['second'] * u['_aut']
-
-    # SI units
-    u['m'] = 1e10 * u['Ang']  # metre
-    u['kg'] = 1. / u['_amu']  # kilogram
-    u['s'] = u['second']  # second
-    u['A'] = 1.0 / u['_e'] / u['s']  # ampere
-    # derived
-    u['J'] = u['kJ'] / 1000  # Joule = kg * m**2 / s**2
-    u['C'] = 1.0 / u['_e']  # Coulomb = A * s
-
-    return {k: v for k, v in u.items() if not k.startswith('_')}
-
-
-# Define all the expected symbols with dummy values so that introspection
-# will know that they exist when the module is imported, even though their
-# values are immediately overwritten.
-# pylint: disable=invalid-name
-(alpha, eV, fs, invcm, kB, kJ, kcal, kg, m, mol, nm, s, second, A, AUT, Ang, Angstrom,
- Bohr, C, Debye, GPa, Ha, Hartree, J, Pascal, bar, Ry, Rydberg) = [0.0] * 28
-
-# Now update the module scope:
-globals().update(create_units())
 
 
 DUMMY_ARRAY = np.array([[0.0, 0.0, 0.0]])

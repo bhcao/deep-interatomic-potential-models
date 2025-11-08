@@ -21,8 +21,8 @@ import numpy as np
 import pytest
 
 from dipm.data.chemical_system import ChemicalSystem
-from dipm.data.chemical_systems_readers.extxyz_reader import ExtxyzReader
-from dipm.data.configs import ChemicalSystemsReaderConfig, GraphDatasetBuilderConfig
+from dipm.data.chemical_datasets.extxyz_reader import ExtxyzReader
+from dipm.data.configs import ChemicalDatasetsConfig, GraphDatasetBuilderConfig
 from dipm.data.graph_dataset_builder import (
     DatasetsHaveNotBeenProcessedError,
     GraphDataset,
@@ -50,7 +50,7 @@ SMALL_MP_DATASET_PATH = DATA_DIR / "small_materials_test.extxyz"
 
 @pytest.mark.parametrize("train_num_to_load", [None, 3])
 def test_extxyz_reading_works_correctly(train_num_to_load):
-    chemical_systems_reader_config = ChemicalSystemsReaderConfig(
+    chemical_systems_reader_config = ChemicalDatasetsConfig(
         train_dataset_paths=[str(SMALL_ASPIRIN_DATASET_PATH.resolve())],
         valid_dataset_paths=[str(SMALL_ASPIRIN_UNSEEN_ATOMS_DATASET_PATH.resolve())],
         test_dataset_paths=None,
@@ -84,7 +84,7 @@ def test_extxyz_reading_works_correctly(train_num_to_load):
 
 @pytest.mark.parametrize("use_formation_energies", [True, False])
 def test_graph_dataset_builder_works_correctly(use_formation_energies):
-    reader_config = ChemicalSystemsReaderConfig(
+    reader_config = ChemicalDatasetsConfig(
         train_dataset_paths=[str(SMALL_ASPIRIN_DATASET_PATH.resolve())],
         valid_dataset_paths=None,
         test_dataset_paths=None,
@@ -277,7 +277,7 @@ def test_data_is_correctly_split_randomly_by_group():
 
 def test_correct_loading_of_stress():
     """Test loading of subset of MP dataset"""
-    reader_config = ChemicalSystemsReaderConfig(
+    reader_config = ChemicalDatasetsConfig(
         train_dataset_paths=[str(SMALL_MP_DATASET_PATH.resolve())],
         valid_dataset_paths=None,
         test_dataset_paths=None,

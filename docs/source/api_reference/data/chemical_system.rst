@@ -1,6 +1,6 @@
 .. _chemical_system:
 
-.. module:: mlip.data.chemical_system
+.. module:: dipm.data.chemical_system
 
 Chemical System
 ===============

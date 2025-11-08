@@ -90,7 +90,7 @@ def add_dataset_convert_args(parser):
     parser.add_argument(
         "--energy_unit",
         type=str,
-        choices=["eV", "kJ/mol", "kcal/mol", "Hartree", "Bohr"],
+        choices=["eV", "kJ/mol", "kcal/mol", "Hartree"],
         default="eV",
         help="Energy unit used in the dataset, default to eV",
     )

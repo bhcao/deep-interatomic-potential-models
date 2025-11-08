@@ -3,12 +3,12 @@
 MACE
 ====
 
-.. module:: mlip.models.mace.models
+.. module:: dipm.models.mace.models
 
     .. autoclass:: Mace
 
         .. automethod:: __call__
 
-.. module:: mlip.models.mace.config
+.. module:: dipm.models.mace.config
 
     .. autoclass:: MaceConfig

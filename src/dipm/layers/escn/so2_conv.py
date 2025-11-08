@@ -44,6 +44,7 @@ class SO2mConvolution(nnx.Module, PrecallInterface):
         lmax: int,
         num_experts: int = 0,
         *,
+        dtype: Dtype | None = None,
         param_dtype: Dtype = jnp.float32,
         rngs: nnx.Rngs,
     ):
@@ -55,12 +56,12 @@ class SO2mConvolution(nnx.Module, PrecallInterface):
         if num_experts > 0:
             self.fc = MoLE(
                 num_experts, in_channels, out_channels, use_bias=False,
-                param_dtype=param_dtype, rngs=rngs
+                dtype=dtype, param_dtype=param_dtype, rngs=rngs
             )
         else:
             self.fc = nnx.Linear(
                 in_channels, out_channels, use_bias=False,
-                param_dtype=param_dtype, rngs=rngs
+                dtype=dtype, param_dtype=param_dtype, rngs=rngs
             )
 
     @PrecallInterface.context_handler
@@ -110,6 +111,7 @@ class SO2Convolution(nnx.Module, PrecallInterface):
         extra_m0_output_channels: int | None = None,
         num_experts: int = 0,
         *,
+        dtype: Dtype | None = None,
         param_dtype: Dtype = jnp.float32,
         rngs: nnx.Rngs,
     ):
@@ -133,11 +135,12 @@ class SO2Convolution(nnx.Module, PrecallInterface):
         if num_experts > 0:
             self.fc_m0 = MoLE(
                 num_experts, num_channels_m0, m0_output_channels,
-                param_dtype=param_dtype, rngs=rngs
+                dtype=dtype, param_dtype=param_dtype, rngs=rngs
             )
         else:
             self.fc_m0 = nnx.Linear(
-                num_channels_m0, m0_output_channels, param_dtype=param_dtype, rngs=rngs
+                num_channels_m0, m0_output_channels,
+                dtype=dtype, param_dtype=param_dtype, rngs=rngs
             )
         num_channels_rad = self.fc_m0.in_features # for radial function
 
@@ -151,6 +154,7 @@ class SO2Convolution(nnx.Module, PrecallInterface):
                     m_output_channels,
                     self.lmax,
                     num_experts,
+                    dtype=dtype,
                     param_dtype=param_dtype,
                     rngs=rngs,
                 )
@@ -175,6 +179,7 @@ class SO2Convolution(nnx.Module, PrecallInterface):
                 gradient_normalization=0.0,
                 use_bias=True,
                 use_act_norm=False,
+                dtype=dtype,
                 param_dtype=param_dtype,
                 rngs=rngs,
             )

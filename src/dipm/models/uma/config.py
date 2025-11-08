@@ -15,7 +15,7 @@
 from pydantic import BaseModel
 
 from dipm.layers.escn import LayerNormType
-from dipm.typing import PositiveInt, NonNegativeInt
+from dipm.typing import PositiveInt, NonNegativeInt, DtypeEnum
 from dipm.models.uma.blocks import FeedForwardType, ActivationType
 
 
@@ -49,6 +49,8 @@ class UMAConfig(BaseModel):
         num_experts: Number of experts in the MoLE block. Default is 8.
         mole_dropout: Dropout rate for MoLE router. Default is 0.0.
         use_composition_embedding: Whether to use composition embedding in MoLE router.
+        param_dtype: The data type of model parameters. Default is ``jnp.float32``.
+        force_head: Whether to predict forces with forces head. Default is ``False``.
     """
 
     num_layers: PositiveInt = 12
@@ -68,3 +70,5 @@ class UMAConfig(BaseModel):
     num_experts: int = 8
     mole_dropout: float = 0.0
     use_composition_embedding: bool = False
+    param_dtype: DtypeEnum = DtypeEnum.F32
+    force_head: bool = False

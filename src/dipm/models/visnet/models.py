@@ -36,6 +36,7 @@ from dipm.models.visnet.blocks import (
 )
 from dipm.models.visnet.config import VisnetConfig
 from dipm.utils.safe_norm import safe_norm
+from dipm.typing import get_dtype
 
 
 class Visnet(ForceModel):
@@ -65,10 +66,12 @@ class Visnet(ForceModel):
         config: dict | VisnetConfig,
         dataset_info: DatasetInfo,
         *,
-        param_dtype: Dtype = jnp.float32,
+        dtype: Dtype | None = None,
         rngs: nnx.Rngs
     ):
-        super().__init__(config, dataset_info)
+        super().__init__(config, dataset_info, dtype=dtype)
+        dtype = self.dtype
+        param_dtype = get_dtype(self.config.param_dtype)
 
         r_max = self.dataset_info.cutoff_distance_angstrom
 
@@ -91,19 +94,25 @@ class Visnet(ForceModel):
             num_species=num_species,
         )
 
-        self.visnet_model = VisnetBlock(**visnet_kwargs, param_dtype=param_dtype, rngs=rngs)
+        self.visnet_model = VisnetBlock(
+            **visnet_kwargs,
+            dtype=dtype,
+            param_dtype=param_dtype,
+            rngs=rngs
+        )
 
         self.output_model = EquivariantScalar(
             self.config.num_channels,
             self.config.num_channels,
             self.config.num_channels,
             activation=self.config.activation,
+            dtype=dtype,
             param_dtype=param_dtype,
             rngs=rngs,
         )
-        self.atomic_energies = get_atomic_energies(
-            self.dataset_info, self.config.atomic_energies, num_species
-        )
+        self.atomic_energies = nnx.Cache(get_atomic_energies(
+            self.dataset_info, self.config.atomic_energies, num_species, dtype=dtype
+        ))
 
     def __call__(
         self,
@@ -125,7 +134,7 @@ class Visnet(ForceModel):
         node_feats = self.output_model.post_reduce(node_feats)
 
         node_feats += self.dataset_info.scaling_mean
-        node_feats += self.atomic_energies[node_species]  # [n_nodes, ]
+        node_feats += self.atomic_energies.value[node_species]  # [n_nodes, ]
 
         return node_feats
 
@@ -146,6 +155,7 @@ class VisnetBlock(nnx.Module):
         cutoff: float = 5.0,
         num_species: int = 5,
         *,
+        dtype: Dtype | None = None,
         param_dtype: Dtype = jnp.float32,
         rngs: nnx.Rngs,
     ):
@@ -158,19 +168,20 @@ class VisnetBlock(nnx.Module):
         )
 
         self.node_embedding = nnx.Embed(
-            num_species, num_channels, param_dtype=param_dtype, rngs=rngs
+            num_species, num_channels, dtype=dtype, param_dtype=param_dtype, rngs=rngs
         )
         self.radial_embedding = get_rbf_cls(rbf_type)(
-            cutoff, num_rbf, trainable_rbf, param_dtype=param_dtype, rngs=rngs
+            cutoff, num_rbf, trainable_rbf, dtype=dtype, param_dtype=param_dtype, rngs=rngs
         )
         self.spherical_embedding = Sphere(lmax)
 
         self.neighbor_embedding = NeighborEmbedding(
-            num_rbf, num_channels, cutoff, num_species, param_dtype=param_dtype, rngs=rngs
+            num_rbf, num_channels, cutoff, num_species,
+            dtype=dtype, param_dtype=param_dtype, rngs=rngs
         )
 
         self.edge_embedding = EdgeEmbedding(
-            num_rbf, num_channels, param_dtype=param_dtype, rngs=rngs
+            num_rbf, num_channels, dtype=dtype, param_dtype=param_dtype, rngs=rngs
         )
 
         self.visnet_layers = [
@@ -182,6 +193,7 @@ class VisnetBlock(nnx.Module):
                 cutoff=cutoff,
                 vecnorm_type=vecnorm_type,
                 last_layer=i == num_layers - 1,
+                dtype=dtype,
                 param_dtype=param_dtype,
                 rngs=rngs,
             )
@@ -189,7 +201,7 @@ class VisnetBlock(nnx.Module):
         ]
 
         self.out_norm = nnx.LayerNorm(
-            num_channels, epsilon=1e-05, param_dtype=param_dtype, rngs=rngs
+            num_channels, epsilon=1e-05, dtype=dtype, param_dtype=param_dtype, rngs=rngs
         )
         self.vec_out_norm = get_veclayernorm_fn(vecnorm_type)
 
@@ -263,6 +275,7 @@ class VisnetLayer(nnx.Module):
         vecnorm_type: str,
         last_layer: bool = False,
         *,
+        dtype: Dtype | None = None,
         param_dtype: Dtype = jnp.float32,
         rngs: nnx.Rngs,
     ):
@@ -274,7 +287,7 @@ class VisnetLayer(nnx.Module):
         # Setting eps=1e-05 to reproduce pytorch Layernorm
         # See: https://github.com/cgarciae/nanoGPT-jax/blob/24fd60f987a946915e43c0000195bd73ddc34271/model.py#L95  # noqa: E501
         self.layernorm = nnx.LayerNorm(
-            num_channels, epsilon=1e-05, param_dtype=param_dtype, rngs=rngs
+            num_channels, epsilon=1e-05, dtype=dtype, param_dtype=param_dtype, rngs=rngs
         )
         self.vec_layernorm = get_veclayernorm_fn(vecnorm_type)
         self.act = get_activation_fn(activation)
@@ -286,6 +299,7 @@ class VisnetLayer(nnx.Module):
             num_channels * 3,
             use_bias=False,
             kernel_init=initializers.xavier_uniform(),
+            dtype=dtype,
             param_dtype=param_dtype,
             rngs=rngs,
         )
@@ -293,6 +307,7 @@ class VisnetLayer(nnx.Module):
             num_channels,
             3 * num_channels,
             kernel_init=initializers.xavier_uniform(),
+            dtype=dtype,
             param_dtype=param_dtype,
             rngs=rngs,
         )
@@ -300,6 +315,7 @@ class VisnetLayer(nnx.Module):
             num_channels,
             2 * num_channels,
             kernel_init=initializers.xavier_uniform(),
+            dtype=dtype,
             param_dtype=param_dtype,
             rngs=rngs,
         )
@@ -307,6 +323,7 @@ class VisnetLayer(nnx.Module):
             num_channels,
             num_channels * 2,
             kernel_init=initializers.xavier_uniform(),
+            dtype=dtype,
             param_dtype=param_dtype,
             rngs=rngs,
         )
@@ -314,6 +331,7 @@ class VisnetLayer(nnx.Module):
             num_channels,
             num_channels * 3,
             kernel_init=initializers.xavier_uniform(),
+            dtype=dtype,
             param_dtype=param_dtype,
             rngs=rngs,
         )
@@ -323,6 +341,7 @@ class VisnetLayer(nnx.Module):
                 num_channels,
                 num_channels,
                 kernel_init=initializers.xavier_uniform(),
+                dtype=dtype,
                 param_dtype=param_dtype,
                 rngs=rngs,
             )
@@ -331,6 +350,7 @@ class VisnetLayer(nnx.Module):
                 num_channels,
                 use_bias=False,
                 kernel_init=initializers.xavier_uniform(),
+                dtype=dtype,
                 param_dtype=param_dtype,
                 rngs=rngs,
             )
@@ -339,6 +359,7 @@ class VisnetLayer(nnx.Module):
                 num_channels,
                 use_bias=False,
                 kernel_init=initializers.xavier_uniform(),
+                dtype=dtype,
                 param_dtype=param_dtype,
                 rngs=rngs,
             )

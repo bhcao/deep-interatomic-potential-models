@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from dataclasses import field
 import functools
 from collections.abc import Callable
 
@@ -29,6 +28,10 @@ from dipm.models import ForceFieldPredictor
 from dipm.training.optimizer import EMATracker
 
 
+class TrainingStateVar(nnx.Variable):
+    """Variable used in TrainingState."""
+
+
 @struct.dataclass
 class TrainingState:
     """
@@ -41,40 +44,23 @@ class TrainingState:
         num_steps: The number of training steps taken.
         acc_steps: The number of gradient accumulation steps taken; resets to 0 after
                    each optimizer step.
-        extras: Additional auxiliary information in form of a dictionary.
     """
 
     predictor: ForceFieldPredictor
     optimizer: nnx.Optimizer
     ema_tracker: EMATracker
-    num_steps: jax.Array
-    acc_steps: jax.Array
-    extras: dict | None = field(default_factory=dict) # pylint: disable=invalid-field-call
+    num_steps: TrainingStateVar
+    acc_steps: TrainingStateVar
 
-    def state_dict(self) -> dict:
-        '''Return dict of nnx.State (filter out RNGs)'''
-        wrt = [nnx.Param, nnx.BatchStat]
-        return {
-            "predictor": nnx.state(self.predictor, wrt),
-            "optimizer": nnx.state(self.optimizer),
-            "ema_tracker": nnx.state(self.ema_tracker),
-            "num_steps": self.num_steps,
-            "acc_steps": self.acc_steps,
-            "extras": self.extras,
-        }
-
-    def load_state_dict(self, state_dict: dict, model_only: bool = False):
-        '''Restore from dict of nnx.State'''
-        nnx.update(self.predictor, state_dict["predictor"])
-        if not model_only:
-            nnx.update(self.optimizer, state_dict["optimizer"])
-            nnx.update(self.ema_tracker, state_dict["ema_tracker"])
-            # pylint: disable=no-member
-            self.replace(
-                num_steps = state_dict["num_steps"],
-                acc_steps = state_dict["acc_steps"],
-                extras = state_dict["extras"],
-            )
+    def state_dict(self, ignore_cache: bool = False) -> dict:
+        '''Return dict of nnx.State (filter out RNGs and Static from model)'''
+        if ignore_cache:
+            wrt = [nnx.Param, nnx.BatchStat]
+        else:
+            wrt = [nnx.Param, nnx.BatchStat, nnx.Cache]
+        state_dict = nnx.state(self)
+        state_dict["predictor"] = nnx.state(self.predictor, wrt)
+        return state_dict
 
 
 def _training_step(
@@ -84,7 +70,7 @@ def _training_step(
     epoch_number: int,
     loss_fun: LossFunction,
     avg_n_graphs_per_batch: float,
-    num_gradient_accumulation_steps: int | None,
+    num_gradient_accumulation_steps: int,
     should_parallelize: bool,
 ) -> dict:
     '''Training state will be updated rather than create a new state.'''
@@ -93,8 +79,8 @@ def _training_step(
     predictor = training_state.predictor
     optimizer = training_state.optimizer
     ema_tracker = training_state.ema_tracker
-    num_steps = training_state.num_steps
-    acc_steps = training_state.acc_steps
+    num_steps = training_state.num_steps.value
+    acc_steps = training_state.acc_steps.value
 
     def model_loss_fun(
         predictor: nnx.Module, ref_graph: GraphsTuple, rngs: nnx.Rngs, epoch: int
@@ -131,10 +117,10 @@ def _training_step(
         metrics = jax.lax.pmean(metrics, axis_name="device")
 
     # Update per-step variables.
-    training_state.replace(
-        acc_steps = (acc_steps + 1) % num_gradient_accumulation_steps,
-        num_steps = jax.lax.cond(acc_steps == 0, lambda x: x + 1, lambda x: x, num_steps),
-    )
+    nnx.update(training_state, {
+        "acc_steps": (acc_steps + 1) % num_gradient_accumulation_steps,
+        "num_steps": jax.lax.cond(acc_steps == 0, lambda x: x + 1, lambda x: x, num_steps),
+    })
 
     return metrics
 
@@ -142,7 +128,7 @@ def _training_step(
 def make_train_step(
     loss_fun: LossFunction,
     avg_n_graphs_per_batch: float,
-    num_gradient_accumulation_steps: int | None = 1,
+    num_gradient_accumulation_steps: int = 1,
     should_parallelize: bool = True,
 ) -> Callable[[TrainingState, GraphsTuple, nnx.Rngs, int], dict]:
     """
@@ -172,9 +158,11 @@ def make_train_step(
     )
 
     if should_parallelize:
-        return jax.pmap(
-            nnx.jit(training_step),
-            axis_name="device",
-            static_broadcasted_argnums=2,
+        return nnx.split_rngs(splits=jax.local_device_count())(
+            nnx.pmap(
+                training_step,
+                axis_name="device",
+                static_broadcasted_argnums=3,
+            )
         )
     return nnx.jit(training_step)

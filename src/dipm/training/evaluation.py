@@ -82,8 +82,8 @@ def make_evaluation_step(
     )
 
     if should_parallelize:
-        return jax.pmap(
-            nnx.jit(evaluation_step), axis_name="device", static_broadcasted_argnums=2
+        return nnx.pmap(
+            evaluation_step, axis_name="device", static_broadcasted_argnums=2
         )
     return nnx.jit(evaluation_step)
 

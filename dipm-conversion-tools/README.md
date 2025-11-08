@@ -9,7 +9,7 @@ For compatibility and efficiency reasons, we do not support LMDB and ExtXYZ data
 To install the latest release of `dipm_cvt`, run the following command:
 
 ```
-pip install dipm_cvt[opt_dep]
+pip install dipm-cvt[opt_dep]
 ```
 
 or for development:

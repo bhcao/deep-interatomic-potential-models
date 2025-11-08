@@ -20,7 +20,7 @@ import ase
 import pydantic
 
 from dipm.models import ForceFieldPredictor
-from dipm.simulation.jax_md.jax_md_config import JaxMDSimulationConfig
+from dipm.simulation.configs import SimulationConfig
 from dipm.simulation.state import SimulationState
 
 
@@ -36,7 +36,7 @@ class SimulationEngine(abc.ABC):
         self,
         atoms: ase.Atoms,
         force_field: ForceFieldPredictor,
-        config: JaxMDSimulationConfig,
+        config: SimulationConfig,
     ) -> None:
         """Constructor that initializes the simulation state and an empty list of loggers.
         Engine-specific initialization is then delegated to ``._initialize()``
@@ -55,7 +55,7 @@ class SimulationEngine(abc.ABC):
         self,
         atoms: ase.Atoms,
         force_field: ForceFieldPredictor,
-        config: JaxMDSimulationConfig,
+        config: SimulationConfig,
     ) -> None:
         """Subclasses should implement this method to handle their
         specific initialization.

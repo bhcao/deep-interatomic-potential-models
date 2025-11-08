@@ -18,9 +18,11 @@ from typing import Any
 
 import jax
 from flax import nnx
+from flax.typing import Dtype
 import pydantic
 
 from dipm.data.dataset_info import DatasetInfo
+from dipm.typing import get_dtype
 
 
 class PrecallInterface:
@@ -96,13 +98,30 @@ class ForceModel(nnx.Module):
 
     All subclasses of ForceModel must call super.__init__() and pass in
     an additional nnx.Rngs parameter during initialization
+
+    NOTE: Don't keep any jax.Array that need to be used in the forward pass
+    directly in the class attributes, as they won't be replicated when
+    parallelized. Instead, use the nnx.Cache to wrap them.
+
+    To support direct forces prediction, you should add the ``force_head``
+    (bool) attribute to your Config class and specify ``force_head_prefix``
+    (str) in the class's constants. The prefix should be the state dict key
+    prefix for the forces head parameters.
     """
 
     Config = pydantic.BaseModel  # Must be overridden by the child classes
 
-    def __init__(self, config: dict | Config, dataset_info: DatasetInfo):
+    def __init__(
+        self,
+        config: dict | Config,
+        dataset_info: DatasetInfo,
+        *,
+        dtype: Dtype | None = None,
+    ):
         self.config = self.Config(**config) if isinstance(config, dict) else config
         self.dataset_info = dataset_info
+        self.dtype = dtype or get_dtype(getattr(self.config, 'param_dtype', 'f32'))
+        self.predict_forces = getattr(self.config, "force_head", False)
 
     def __call__(
         self,

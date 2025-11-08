@@ -18,10 +18,10 @@ import numpy as np
 import pytest
 
 from dipm.data.chemical_system import ChemicalSystem
-from dipm.data.chemical_systems_readers.combined_reader import CombinedReader
-from dipm.data.chemical_systems_readers.extxyz_reader import ExtxyzReader
-from dipm.data.chemical_systems_readers.hdf5_reader import Hdf5Reader
-from dipm.data.configs import ChemicalSystemsReaderConfig
+from dipm.data.chemical_datasets.combined_reader import CombinedReader
+from dipm.data.chemical_datasets.extxyz_reader import ExtxyzReader
+from dipm.data.chemical_datasets.hdf5_reader import Hdf5Reader
+from dipm.data.configs import ChemicalDatasetsConfig
 
 DATA_DIR = Path(__file__).parent.parent / "data"
 SPICE_SMALL_HDF5_PATH = DATA_DIR / "spice2-1000_429_md_0-1.hdf5"
@@ -30,7 +30,7 @@ SMALL_ASPIRIN_DATASET_PATH = DATA_DIR / "small_aspirin_test.xyz"
 
 @pytest.mark.parametrize("train_num_to_load", [None, 1])
 def test_combined_data_reader_supports_hdf5_and_extxyz(train_num_to_load):
-    extxyz_reader_config = ChemicalSystemsReaderConfig(
+    extxyz_reader_config = ChemicalDatasetsConfig(
         reader_type="extxyz",
         train_dataset_paths=[SMALL_ASPIRIN_DATASET_PATH.resolve()],
         valid_dataset_paths=None,
@@ -39,7 +39,7 @@ def test_combined_data_reader_supports_hdf5_and_extxyz(train_num_to_load):
         valid_num_to_load=None,
         test_num_to_load=None,
     )
-    hdf5_reader_config = ChemicalSystemsReaderConfig(
+    hdf5_reader_config = ChemicalDatasetsConfig(
         reader_type="hdf5",
         train_dataset_paths=[SPICE_SMALL_HDF5_PATH.resolve()],
         valid_dataset_paths=None,

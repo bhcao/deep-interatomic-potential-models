@@ -1,10 +1,10 @@
 .. _dataset_configs:
 
-.. module:: mlip.data.configs
+.. module:: dipm.data.configs
 
 Dataset Configs
 ===============
 
-.. autoclass:: ChemicalSystemsReaderConfig
+.. autoclass:: ChemicalDatasetsConfig
 
 .. autoclass:: GraphDatasetBuilderConfig

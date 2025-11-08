@@ -22,14 +22,11 @@ import numpy as np
 from tqdm_loggable.auto import tqdm
 
 from dipm.data.chemical_system import ChemicalSystem
-from dipm.data.chemical_systems_readers.hdf5_dataset import create_datasets
-from dipm.data.chemical_systems_readers.utils import (
+from dipm.data.chemical_datasets.dataset import Dataset
+from dipm.data.chemical_datasets.utils import (
     filter_systems_with_unseen_atoms_and_assign_atomic_species as filter_fn,
 )
-from dipm.data.configs import (
-    GraphDatasetBuilderConfig,
-    ChemicalSystemsReaderConfig,
-)
+from dipm.data.configs import GraphDatasetBuilderConfig
 from dipm.data.dataset_info import DatasetInfo, compute_dataset_info_from_graphs
 from dipm.data.helpers.atomic_number_table import AtomicNumberTable
 from dipm.data.helpers.data_prefetching import (
@@ -57,32 +54,28 @@ class DevicesNotProvidedForPrefetchingError(Exception):
 class GraphDatasetBuilder:
     """Main class handling the construction and preprocessing of the graph dataset.
 
-    The key idea is that a user provides a
-    :class:`~dipm.data.chemical_systems_readers.chemical_systems_reader.ChemicalSystemsReader`
+    The key idea is that a user provides a tuple of train, validation, and test
+    datasets each derived from a :class:`~dipm.data.chemical_datasets.dataset.Dataset`
     subclass that loads a dataset from disk into
     :class:`~dipm.data.chemical_system.ChemicalSystem` dataclasses and then
     ``GraphDatasetBuilder`` converts these further to ``jraph`` graphs and the
     dataset info dataclass.
     """
 
-    ReaderConfig = ChemicalSystemsReaderConfig
     Config = GraphDatasetBuilderConfig
 
     def __init__(
         self,
-        reader_config: ChemicalSystemsReaderConfig,
+        datasets: tuple[Dataset, Dataset | None, Dataset | None],
         dataset_config: GraphDatasetBuilderConfig,
     ):
         """Constructor.
 
         Args:
-            reader_config: The pydantic config for the chemical systems reader.
-            reader: The data reader that loads a dataset into
-                         :class:`~dipm.data.chemical_system.ChemicalSystem`
-                         dataclasses
+            datasets: A tuple of train, validation, and test datasets.
             dataset_config: The pydantic config.
         """
-        self._reader = create_datasets(reader_config)
+        self._reader = datasets
         self._config = dataset_config
         self._dataset_info: DatasetInfo | None = None
         self._datasets: dict[str, GraphDataset | None] | None = None

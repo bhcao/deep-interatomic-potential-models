@@ -1,12 +1,12 @@
 .. _api_reference:
 
-.. module:: mlip
+.. module:: dipm
 
 API reference
 =============
 
 This API reference contains a collection of all functions, modules, and objects
-available in ``mlip``, along with detailed descriptions of their purpose
+available in ``dipm``, along with detailed descriptions of their purpose
 and operation.
 
 .. toctree::
@@ -14,5 +14,8 @@ and operation.
 
     data/index
     models/index
+    layers/index
     training/index
+    loss/index
     simulation/index
+    utils/index

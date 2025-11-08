@@ -16,7 +16,7 @@ import pydantic
 
 from dipm.layers.activations import Activation
 from dipm.layers.normalizations import VecNormType
-from dipm.typing import NonNegativeInt, PositiveInt
+from dipm.typing import NonNegativeInt, PositiveInt, DtypeEnum
 
 
 class VisnetConfig(pydantic.BaseModel):
@@ -49,6 +49,7 @@ class VisnetConfig(pydantic.BaseModel):
         num_species: The number of elements (atomic species descriptors) allowed.
                      If ``None`` (default), infer the value from the atomic energies
                      map in the dataset info.
+        param_dtype: The data type of model parameters. Default is ``jnp.float32``.
     """
 
     num_layers: PositiveInt = 4
@@ -62,3 +63,4 @@ class VisnetConfig(pydantic.BaseModel):
     vecnorm_type: VecNormType = VecNormType.NONE
     atomic_energies: str | dict[int, float] | None = None
     num_species: PositiveInt | None = None
+    param_dtype: DtypeEnum = DtypeEnum.F32

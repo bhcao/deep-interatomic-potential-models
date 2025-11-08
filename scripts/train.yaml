@@ -4,6 +4,7 @@ model:
   num_rbf: 512            # Model specific parameters
   lmax: 4                 # Model specific parameters
   grid_resolution: 18     # Model specific parameters
+  force_head: true        # Model specific parameters
   avg_num_neighbors: null # Default to Meta IS2RE value, so need to be overridden
   avg_num_nodes: null     # Same as above
   seed: 42                # Random seed for model initialization
@@ -19,11 +20,12 @@ dataset:
 train:
   num_epochs: 10                        # TrainingLoopConfig
   final_learning_rate: 1e-4             # OptimizerConfig
+  dtype: bfloat16                       # Computation dtype in mixed precision training
   loss: MSELoss                         # Loss class name in dipm.loss
   local_model_output_dir: ./checkpoints # TrainingIOHandler
   restore_checkpoint_if_exists: true    # TrainingIOHandler
   restore_optimizer_state: true         # TrainingIOHandler
   save_path: ./equiformerv2.safetensors # Final save file name
   stage_splits: [0.7, 0.3]              # Two stage training
-  energy_weights: [1.0, 20.0]           # Schedule for energy weight in stage 1 and 2
-  forces_weights: [25.0, 10.0]          # Schedule for forces weight in stage 1 and 2
+  energy_weights: [1.0, 25.0]           # Schedule for energy weight in stage 1 and 2
+  forces_weights: [25.0, 1.0]           # Schedule for forces weight in stage 1 and 2

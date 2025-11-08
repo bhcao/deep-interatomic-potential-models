@@ -24,6 +24,8 @@ import jax
 import jax.numpy as jnp
 from jax import vmap
 
+from dipm.layers.dtypes import promote_dtype
+
 A025582 = [0, 1, 3, 7, 12, 20, 30, 44, 65, 80, 96, 122, 147, 181, 203, 251, 289]
 
 
@@ -39,6 +41,7 @@ class Contraction(nnx.Module):
         symmetric_tensor_product_basis: bool = True,
         off_diagonal: bool = False,
         *,
+        dtype: Dtype | None = None,
         param_dtype: Dtype = jnp.float32,
         rngs: nnx.Rngs,
     ):
@@ -47,16 +50,16 @@ class Contraction(nnx.Module):
         self.off_diagonal = off_diagonal
 
         if symmetric_tensor_product_basis:
-            self.reduced_basis = e3nn.reduced_symmetric_tensor_product_basis(
+            reduced_basis = e3nn.reduced_symmetric_tensor_product_basis(
                 node_irreps, order, keep_ir=keep_irrep_out
             )
         else:
-            self.reduced_basis = e3nn.reduced_tensor_product_basis(
+            reduced_basis = e3nn.reduced_tensor_product_basis(
                 [node_irreps] * order, keep_ir=keep_irrep_out
             )
 
         self.weights = []
-        for mul, _ in self.reduced_basis.irreps:
+        for mul, _ in reduced_basis.irreps:
             # u: ndarray [(irreps_x.dim)^order, multiplicity, ir_out.dim]
             key = rngs.params()
             w = nnx.Param(initializers.normal(
@@ -64,23 +67,33 @@ class Contraction(nnx.Module):
             )(key, (num_species, mul, num_features), param_dtype))
             self.weights.append(w)
 
+        self.reduced_basis = nnx.Cache(reduced_basis.astype(dtype))
+        self.dtype = dtype
+
     def __call__(
         self,
         node_feats: e3nn.IrrepsArray,
         index: jax.Array,
         out: dict[e3nn.Irrep, jax.Array],
     ) -> dict[e3nn.Irrep, jax.Array]:
+        weights = [w.value for w in self.weights]
+        weights, node_feats = promote_dtype(
+            (weights, node_feats), dtype=self.dtype
+        )
+
         out_new = {}
         if self.off_diagonal:
             x_ = jnp.roll(node_feats.array, A025582[self.order - 1])
         else:
             x_ = node_feats.array
 
+        reduced_basis = self.reduced_basis.value
+
         for (mul, ir_out), u, weight in zip(
-            self.reduced_basis.irreps, self.reduced_basis.chunks, self.weights
+            reduced_basis.irreps, reduced_basis.chunks, weights
         ):
             # u: ndarray [(irreps_x.dim)^order, multiplicity, ir_out.dim]
-            w = weight.value[index]  # [multiplicity, num_features]
+            w = weight[index]  # [multiplicity, num_features]
             w = w * (mul**-0.5) ** self.gradient_normalization  # normalize weights
             if ir_out not in out:
                 out_new[ir_out] = jnp.einsum(
@@ -114,6 +127,7 @@ class SymmetricContraction(nnx.Module):
         symmetric_tensor_product_basis: bool = True,
         off_diagonal: bool = False,
         *,
+        dtype: Dtype | None = None,
         param_dtype: Dtype = jnp.float32,
         rngs: nnx.Rngs,
     ):
@@ -138,6 +152,7 @@ class SymmetricContraction(nnx.Module):
                 gradient_normalization,
                 symmetric_tensor_product_basis,
                 off_diagonal,
+                dtype=dtype,
                 param_dtype=param_dtype,
                 rngs=rngs,
             ))

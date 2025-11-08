@@ -18,7 +18,7 @@ import numpy as np
 import pytest
 from pydantic import ValidationError
 
-from dipm.simulation.jax_md.jax_md_config import TemperatureScheduleConfig
+from dipm.simulation.configs import TemperatureScheduleConfig
 from dipm.simulation.enums import SimulationType, TemperatureScheduleMethod
 from dipm.simulation.jax_md.jax_md_simulation_engine import JaxMDSimulationEngine
 

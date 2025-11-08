@@ -1,6 +1,6 @@
 .. _prediction:
 
-.. module:: mlip.typing.prediction
+.. module:: dipm.typing.prediction
 
 Prediction
 ==========

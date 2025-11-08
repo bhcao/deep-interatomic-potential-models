@@ -19,8 +19,8 @@ import jax
 import optax
 import pytest
 
-from dipm.data.chemical_systems_readers.extxyz_reader import ExtxyzReader
-from dipm.data.configs import ChemicalSystemsReaderConfig, GraphDatasetBuilderConfig
+from dipm.data.chemical_datasets.extxyz_reader import ExtxyzReader
+from dipm.data.configs import ChemicalDatasetsConfig, GraphDatasetBuilderConfig
 from dipm.data.graph_dataset_builder import GraphDatasetBuilder
 from dipm.data.helpers.dynamically_batch import dynamically_batch
 from dipm.loss.loss import HuberLoss, MSELoss
@@ -34,7 +34,7 @@ SMALL_ASPIRIN_DATASET_PATH = DATA_DIR / "small_aspirin_test.xyz"
 
 @pytest.fixture
 def setup_datasets_for_training():
-    reader_config = ChemicalSystemsReaderConfig(
+    reader_config = ChemicalDatasetsConfig(
         reader_type="extxyz",
         train_dataset_paths=[str(SMALL_ASPIRIN_DATASET_PATH.resolve())],
         valid_dataset_paths=[str(SMALL_ASPIRIN_DATASET_PATH.resolve())],

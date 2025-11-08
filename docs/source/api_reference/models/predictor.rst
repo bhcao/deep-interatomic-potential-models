@@ -1,6 +1,6 @@
 .. _predictor:
 
-.. module:: mlip.models.predictor
+.. module:: dipm.models.predictor
 
 Force Field predictor
 =====================

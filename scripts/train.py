@@ -16,19 +16,21 @@ import argparse
 import logging
 import json
 
+import jax
 import yaml
 import pydantic
 from flax import nnx
 
-from dipm.data import GraphDatasetBuilder, DatasetInfo
+from dipm.data import GraphDatasetBuilder, DatasetInfo, ChemicalDatasetsConfig, create_datasets
 import dipm.models
 from dipm.models import ForceFieldPredictor
-import dipm.loss.loss
+import dipm.loss
 from dipm.training import get_default_mlip_optimizer, OptimizerConfig
 from dipm.training.training_loggers import log_metrics_to_line
 from dipm.training.training_io_handler import TrainingIOHandler
 from dipm.training import TrainingLoop
 from dipm.utils.model_io import save_model
+from dipm.typing import get_dtype
 
 
 def create_config(model: type[pydantic.BaseModel], config: dict):
@@ -60,21 +62,36 @@ def main(args):
         except FileNotFoundError:
             logging.warning("Dataset info file %s not found.", config['dataset']['info_file'])
 
+    reader_config = create_config(ChemicalDatasetsConfig, config["dataset"])
     builder = GraphDatasetBuilder(
-        create_config(GraphDatasetBuilder.ReaderConfig, config["dataset"]),
+        create_datasets(reader_config),
         builder_config
     )
     # Compute all dataset information. If not called, you will get a warning.
     builder.prepare_datasets()
-
-    train_set, validation_set, test_set = builder.get_splits()
     logging.info("Dataset loaded.")
+
+    should_parallelize = jax.device_count() > 1
+    if config["train"].get("parallel", None) is not None:
+        should_parallelize = config["train"]["parallel"]
+    elif should_parallelize:
+        logging.info("Multiple devices detected, using parallel training. Set `parallel: false`"
+                     " to disable.")
+
+    if should_parallelize:
+        train_set, validation_set, test_set = builder.get_splits(
+            prefetch=should_parallelize,
+            devices=jax.devices()
+        )
+    else:
+        train_set, validation_set, test_set = builder.get_splits()
 
     # Create the model
     model_class = dipm.models.__dict__[config["model"]["target"]]
     force_model = model_class(
         create_config(model_class.Config, config["model"]),
         builder.dataset_info,
+        dtype=get_dtype(config["train"].get("dtype", None)),
         rngs=nnx.Rngs(config["model"]["seed"]),
     )
     # This seed is for save_model()
@@ -96,12 +113,12 @@ def main(args):
         def forces_weight_schedule(epoch):
             return forces_weights[0] if epoch <= stage1 else forces_weights[1]
 
-        loss = dipm.loss.loss.__dict__[config["train"]["loss"]](
+        loss = dipm.loss.__dict__[config["train"]["loss"]](
             energy_weight_schedule=energy_weight_schedule,
             forces_weight_schedule=forces_weight_schedule,
         )
     else:
-        loss = dipm.loss.loss.__dict__[config["train"]["loss"]]()
+        loss = dipm.loss.__dict__[config["train"]["loss"]]()
 
     io_handler = TrainingIOHandler(
         create_config(TrainingIOHandler.Config, config["train"]),
@@ -116,6 +133,7 @@ def main(args):
         loss=loss,
         optimizer=optimizer,
         config=create_config(TrainingLoop.Config, config["train"]),
+        should_parallelize=should_parallelize,
     )
 
     # Training loop

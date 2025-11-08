@@ -20,6 +20,8 @@ import e3nn_jax as e3nn
 from e3nn_jax import Irreps
 from e3nn_jax.legacy import FunctionalFullyConnectedTensorProduct
 
+from dipm.layers.dtypes import promote_dtype
+
 
 class FullyConnectedTensorProduct(nnx.Module):
     '''Flax module of FunctionalFullyConnectedTensorProduct'''
@@ -30,6 +32,7 @@ class FullyConnectedTensorProduct(nnx.Module):
         irreps_in2: Irreps | str,
         irreps_out: Irreps | str,
         *,
+        dtype: Dtype | None = None,
         param_dtype: Dtype = jnp.float32,
         rngs: nnx.Rngs,
     ):
@@ -53,10 +56,14 @@ class FullyConnectedTensorProduct(nnx.Module):
             )
             for ins in self.tensor_product.instructions
         ]
+        self.dtype = dtype
 
     def __call__(
         self, x1: e3nn.IrrepsArray, x2: e3nn.IrrepsArray, **kwargs
     ) -> e3nn.IrrepsArray:
+        weights = [w.value for w in self.weights]
+        (x1, x2, weights) = promote_dtype((x1, x2, weights), dtype=self.dtype)
+
         leading_shape = jnp.broadcast_shapes(x1.shape[:-1], x2.shape[:-1])
         x1 = x1.broadcast_to(leading_shape + (-1,))
         x2 = x2.broadcast_to(leading_shape + (-1,))
@@ -64,8 +71,6 @@ class FullyConnectedTensorProduct(nnx.Module):
         x2 = x2.rechunk(self.irreps_in2)
         x1 = x1.remove_zero_chunks().simplify()
         x2 = x2.remove_zero_chunks().simplify()
-
-        weights = [w.value for w in self.weights]
 
         def helper(x1, x2):
             return self.tensor_product.left_right(weights, x1, x2, **kwargs)

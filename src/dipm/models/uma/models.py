@@ -17,9 +17,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import logging
-
-from e3nn_jax import xyz_to_angles, scatter_mean
+from e3nn_jax import scatter_mean
 import jax
 import jax.numpy as jnp
 from flax import nnx
@@ -35,6 +33,7 @@ from dipm.layers.escn import (
     MappingCoefficients,
     SO3Rotation,
     SO3Grid,
+    SO3LinearV2,
     WignerMatrices,
     LayerNormType,
     EdgeDegreeEmbedding,
@@ -53,8 +52,7 @@ from dipm.models.uma.blocks import (
 )
 from dipm.models.uma.config import UMAConfig
 from dipm.utils.safe_norm import safe_norm
-
-logger = logging.getLogger("dipm")
+from dipm.typing import get_dtype
 
 
 class UMA(ForceModel, PrecallInterface):
@@ -76,16 +74,19 @@ class UMA(ForceModel, PrecallInterface):
 
     Config = UMAConfig
     config: UMAConfig
+    force_head_prefix = "force_head"
 
     def __init__(
         self,
         config: dict | UMAConfig,
         dataset_info: DatasetInfo,
         *,
-        param_dtype: Dtype = jnp.float32,
+        dtype: Dtype | None = None,
         rngs: nnx.Rngs
     ):
-        super().__init__(config, dataset_info)
+        super().__init__(config, dataset_info, dtype=dtype)
+        dtype = self.dtype
+        param_dtype = get_dtype(self.config.param_dtype)
 
         r_max = self.dataset_info.cutoff_distance_angstrom
 
@@ -112,7 +113,8 @@ class UMA(ForceModel, PrecallInterface):
 
         self.charge_spin_dataset_embed = ChargeSpinDatasetEmbed(
             self.config.sphere_channels,
-            self.config.dataset_list,
+            None if self.config.dataset_list is None else len(self.config.dataset_list),
+            dtype=dtype,
             param_dtype=param_dtype,
             rngs=rngs,
         )
@@ -122,42 +124,58 @@ class UMA(ForceModel, PrecallInterface):
                 router_channels = 2 * self.config.sphere_channels
                 self.composition_embedding = nnx.Embed(
                     num_species, self.config.sphere_channels,
-                    param_dtype=param_dtype, rngs=rngs
+                    dtype=dtype, param_dtype=param_dtype, rngs=rngs
                 )
             else:
                 router_channels = self.config.sphere_channels
             num_experts = self.config.num_experts
 
             self.mole_router = nnx.Sequential(
-                nnx.Linear(router_channels, num_experts * 2, param_dtype=param_dtype, rngs=rngs),
+                nnx.Linear(router_channels, num_experts * 2,
+                           dtype=dtype, param_dtype=param_dtype, rngs=rngs),
                 nnx.silu,
-                nnx.Linear(num_experts * 2, num_experts * 2, param_dtype=param_dtype, rngs=rngs),
+                nnx.Linear(num_experts * 2, num_experts * 2,
+                           dtype=dtype, param_dtype=param_dtype, rngs=rngs),
                 nnx.silu,
-                nnx.Linear(num_experts * 2, num_experts, param_dtype=param_dtype, rngs=rngs),
+                nnx.Linear(num_experts * 2, num_experts,
+                           dtype=dtype, param_dtype=param_dtype, rngs=rngs),
                 nnx.silu,
             )
 
             self.mole_dropout = nnx.Dropout(self.config.mole_dropout)
 
-        self.backbone = UMABlock(**uma_kargs, param_dtype=param_dtype, rngs=rngs)
+        self.backbone = UMABlock(
+            **uma_kargs,
+            dtype=dtype,
+            param_dtype=param_dtype,
+            rngs=rngs
+        )
 
         self.energy_head = nnx.Sequential(
             nnx.Linear(
                 self.config.sphere_channels, self.config.hidden_channels,
-                param_dtype=param_dtype, rngs=rngs
+                dtype=dtype, param_dtype=param_dtype, rngs=rngs
             ),
             nnx.silu,
             nnx.Linear(
                 self.config.hidden_channels, self.config.hidden_channels,
-                param_dtype=param_dtype, rngs=rngs
+                dtype=dtype, param_dtype=param_dtype, rngs=rngs
             ),
             nnx.silu,
-            nnx.Linear(self.config.hidden_channels, 1, param_dtype=param_dtype, rngs=rngs),
+            nnx.Linear(
+                self.config.hidden_channels, 1, dtype=dtype, param_dtype=param_dtype, rngs=rngs
+            ),
         )
 
-        self.atomic_energies = get_atomic_energies(
-            self.dataset_info, self.config.atomic_energies, num_species
-        )
+        if self.predict_forces:
+            self.force_head = SO3LinearV2(
+                self.config.sphere_channels, 1, lmax=1,
+                dtype=dtype, param_dtype=param_dtype, rngs=rngs
+            )
+
+        self.atomic_energies = nnx.Cache(get_atomic_energies(
+            self.dataset_info, self.config.atomic_energies, num_species, dtype=dtype
+        ))
 
     # pylint: disable=arguments-differ
     def precall(
@@ -166,13 +184,13 @@ class UMA(ForceModel, PrecallInterface):
         charge: jax.Array, # [num_batch,]
         spin: jax.Array, # [num_batch,]
         n_node: jax.Array, # [num_batch,]
-        dataset: list[str] | None = None,
+        dataset: jax.Array | None = None,
         rngs: nnx.Rngs | None = None,
         **_kwargs,
     ) -> dict:
         if dataset is None:
             if self.config.dataset_list is not None:
-                logger.critical("Must provide `dataset` for `precall`.")
+                raise ValueError("Must provide `dataset` for `precall`.")
             csd_mixed_emb = self.charge_spin_dataset_embed(charge, spin)
         else:
             csd_mixed_emb = self.charge_spin_dataset_embed(charge, spin, dataset)
@@ -223,7 +241,11 @@ class UMA(ForceModel, PrecallInterface):
         std = self.dataset_info.scaling_stdev
         node_energies = mean + std * node_energies
 
-        node_energies += self.atomic_energies[node_species]  # [n_nodes, ]
+        node_energies += self.atomic_energies.value[node_species]  # [n_nodes, ]
+
+        if self.predict_forces:
+            forces = self.force_head(node_feats[:, :4])[:, 1:4, 0]
+            return node_energies, forces
 
         return node_energies
 
@@ -246,6 +268,7 @@ class UMABlock(nnx.Module, PrecallInterface):
         ff_type: FeedForwardType = FeedForwardType.GRID,
         num_experts: int = 0,
         *,
+        dtype: Dtype | None = None,
         param_dtype: Dtype = jnp.float32,
         rngs: nnx.Rngs,
     ):
@@ -257,12 +280,12 @@ class UMABlock(nnx.Module, PrecallInterface):
         mapping_coeffs = mapping_coefficients(lmax, mmax)
 
         # lmax_lmax for node, lmax_mmax for edge
-        so3_grid = SO3Grid(lmax, mmax, resolution=grid_resolution)
-        so3_grid_lmax = SO3Grid(lmax, lmax, resolution=grid_resolution)
+        so3_grid = SO3Grid(lmax, mmax, resolution=grid_resolution, dtype=dtype or param_dtype)
+        so3_grid_lmax = SO3Grid(lmax, lmax, resolution=grid_resolution, dtype=dtype or param_dtype)
 
         # atom embedding
         self.sphere_embedding = nnx.Embed(
-            num_species, sphere_channels, param_dtype=param_dtype, rngs=rngs
+            num_species, sphere_channels, dtype=dtype, param_dtype=param_dtype, rngs=rngs
         )
 
         # edge distance embedding
@@ -270,6 +293,7 @@ class UMABlock(nnx.Module, PrecallInterface):
             cutoff,
             num_rbf,
             rbf_width=2.0,
+            dtype=dtype,
             param_dtype=param_dtype,
             rngs=rngs,
         )
@@ -277,11 +301,11 @@ class UMABlock(nnx.Module, PrecallInterface):
         # equivariant initial embedding
         self.senders_embedding = nnx.Embed(
             num_species, edge_channels, embedding_init=uniform(0.001), # Why?
-            param_dtype=param_dtype, rngs=rngs,
+            dtype=dtype, param_dtype=param_dtype, rngs=rngs,
         )
         self.receivers_embedding = nnx.Embed(
             num_species, edge_channels, embedding_init=uniform(0.001),
-            param_dtype=param_dtype, rngs=rngs
+            dtype=dtype, param_dtype=param_dtype, rngs=rngs
         )
 
         edge_channels_list = [
@@ -296,6 +320,7 @@ class UMABlock(nnx.Module, PrecallInterface):
             edge_channels_list,
             use_atom_edge_embedding=False,
             rescale_factor=5.0,  # sqrt avg degree
+            dtype=dtype,
             param_dtype=param_dtype,
             rngs=rngs,
         )
@@ -316,6 +341,7 @@ class UMABlock(nnx.Module, PrecallInterface):
                 act_type,
                 ff_type,
                 num_experts,
+                dtype=dtype,
                 param_dtype=param_dtype,
                 rngs=rngs,
             )
@@ -325,11 +351,14 @@ class UMABlock(nnx.Module, PrecallInterface):
             norm_type,
             lmax,
             num_channels=sphere_channels,
+            dtype=dtype,
             param_dtype=param_dtype,
             rngs=rngs,
         )
 
-        self.so3_rotation = SO3Rotation(lmax, mmax, mapping_coeffs.perm, dtype=param_dtype)
+        self.so3_rotation = SO3Rotation(
+            lmax, mmax, mapping_coeffs.perm, scale=False, dtype=dtype or param_dtype
+        )
 
     @PrecallInterface.context_handler
     def __call__(
@@ -345,18 +374,16 @@ class UMABlock(nnx.Module, PrecallInterface):
         ctx: dict | None = None,
     ):
         # Initialize the WignerD matrices and other values for spherical harmonic calculations
-        rot_alpha, rot_beta = xyz_to_angles(edge_vectors)
         if not self.deterministic:
             assert rngs is not None
             rot_gamma = jax.random.uniform(
-                rngs['rotation'](), shape=rot_alpha.shape, maxval=2 * jnp.pi
+                rngs['rotation'](), shape=len(edge_vectors), maxval=2 * jnp.pi,
+                dtype=edge_vectors.dtype
             )
         else:
-            rot_gamma = jnp.zeros_like(rot_alpha)
+            rot_gamma = jnp.zeros(len(edge_vectors), dtype=edge_vectors.dtype)
 
-        wigner_matrices = self.so3_rotation.create_wigner_matrices(
-            rot_alpha, rot_beta, rot_gamma, scale=False
-        )
+        wigner_matrices = self.so3_rotation.create_wigner_matrices(edge_vectors, rot_gamma)
 
         # Init per node representations using an atomic number based embedding
         node_feats_scaler = self.sphere_embedding(node_species)
@@ -418,11 +445,13 @@ class UMALayer(nnx.Module, PrecallInterface):
         ff_type: FeedForwardType,
         num_experts: int,
         *,
+        dtype: Dtype | None = None,
         param_dtype: Dtype = jnp.float32,
         rngs: nnx.Rngs,
     ):
         self.norm_1 = get_layernorm_layer(
-            norm_type, mapping_coeffs.lmax, sphere_channels, param_dtype=param_dtype, rngs=rngs
+            norm_type, mapping_coeffs.lmax, sphere_channels,
+            dtype=dtype, param_dtype=param_dtype, rngs=rngs
         )
 
         self.edge_wise = Edgewise(
@@ -433,12 +462,14 @@ class UMALayer(nnx.Module, PrecallInterface):
             so3_grid,
             act_type=act_type,
             num_experts=num_experts,
+            dtype=dtype,
             param_dtype=param_dtype,
             rngs=rngs,
         )
 
         self.norm_2 = get_layernorm_layer(
-            norm_type, mapping_coeffs.lmax, sphere_channels, param_dtype=param_dtype, rngs=rngs
+            norm_type, mapping_coeffs.lmax, sphere_channels,
+            dtype=dtype, param_dtype=param_dtype, rngs=rngs
         )
 
         if ff_type == FeedForwardType.SPECTRAL:
@@ -446,6 +477,7 @@ class UMALayer(nnx.Module, PrecallInterface):
                 sphere_channels,
                 hidden_channels,
                 mapping_coeffs.lmax,
+                dtype=dtype,
                 param_dtype=param_dtype,
                 rngs=rngs,
             )
@@ -454,6 +486,7 @@ class UMALayer(nnx.Module, PrecallInterface):
                 sphere_channels,
                 hidden_channels,
                 so3_grid_lmax=so3_grid_lmax,
+                dtype=dtype,
                 param_dtype=param_dtype,
                 rngs=rngs,
             )

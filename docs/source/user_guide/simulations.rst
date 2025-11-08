@@ -4,18 +4,17 @@ Simulations
 ===========
 
 This library supports :ref:`two types of simulations <simulation_enums_type>`,
-MD and energy minimizations, with
-:ref:`two types of backends <simulation_enums_backend>`, JAX-MD and ASE. Simulations are
+MD and energy minimizations, with two types of backends, JAX-MD and ASE. Simulations are
 handled with simulation engine classes, which are implementations of the abstract
 base class
-:py:class:`SimulationEngine <mlip.simulation.simulation_engine.SimulationEngine>`.
+:py:class:`SimulationEngine <dipm.simulation.simulation_engine.SimulationEngine>`.
 One can either use our two implemented engines
-(:py:class:`JaxMDSimulationEngine <mlip.simulation.jax_md.jax_md_simulation_engine.JaxMDSimulationEngine>`
+(:py:class:`JaxMDSimulationEngine <dipm.simulation.jax_md.jax_md_simulation_engine.JaxMDSimulationEngine>`
 and
-:py:class:`ASESimulationEngine <mlip.simulation.ase.ase_simulation_engine.ASESimulationEngine>`),
+:py:class:`ASESimulationEngine <dipm.simulation.ase.ase_simulation_engine.ASESimulationEngine>`),
 or implemented custom ones. Each engine comes with its own pydantic config that
 inherits from
-:py:class:`SimulationConfig <mlip.simulation.configs.simulation_config.SimulationConfig>`.
+:py:class:`SimulationConfig <dipm.simulation.configs.SimulationConfig>`.
 
 **Important note on units**: The system of units for the inputs and outputs of all
 simulation types is the
@@ -37,7 +36,7 @@ following code:
 .. code-block:: python
 
     from ase.io import read as ase_read
-    from mlip.simulation.jax_md import JaxMDSimulationEngine
+    from dipm.simulation.jax_md import JaxMDSimulationEngine
 
     atoms = ase_read("/path/to/xyz/or/pdb/file")
     force_field = _get_a_trained_force_field_from_somewhere()  # placeholder
@@ -48,15 +47,15 @@ following code:
 
 Note that in the example above, ``_get_a_trained_force_field_from_somewhere()`` is a
 placeholder for a function that loads a trained force field, as described either
-:ref:`here <load_zip_model>` (Option 1) or :ref:`here <load_trained_model>` (Option 2).
+:ref:`here <load_model>` (Option 1) or :ref:`here <load_trained_model>` (Option 2).
 The config class for JAX-MD simulations is
-:py:class:`JaxMDSimulationConfig <mlip.simulation.configs.jax_md_config.JaxMDSimulationConfig>`
+:py:class:`JaxMDSimulationConfig <dipm.simulation.configs.JaxMDSimulationConfig>`
 and can also be accessed via `JaxMDSimulationEngine.Config` for the sake of needing
 fewer imports. The format for the input structure is the commonly used ``ase.Atoms``
 class (see the ASE docs `here <https://wiki.fysik.dtu.dk/ase/ase/atoms.html>`_).
 
 The result of the simulation is stored in the
-:py:class:`SimulationState <mlip.simulation.state.SimulationState>`, which can
+:py:class:`SimulationState <dipm.simulation.state.SimulationState>`, which can
 be accessed like this:
 
 .. code-block:: python
@@ -70,17 +69,17 @@ be accessed like this:
 
 Also, we recommend that you take note of the units
 of the computed properties as described in the
-:py:class:`SimulationState <mlip.simulation.state.SimulationState>` reference. See
+:py:class:`SimulationState <dipm.simulation.state.SimulationState>` reference. See
 our Jupyter notebook on simulations :ref:`here <notebook_tutorials>` for
 more information on how to convert these raw numpy arrays into file
 formats that can be read by popular MD visualization tools.
 
 Energy minimizations can be run in exactly the same way, possibly using slightly
 different settings. See the documentation of the
-:py:class:`JaxMDSimulationConfig <mlip.simulation.configs.jax_md_config.JaxMDSimulationConfig>`
+:py:class:`JaxMDSimulationConfig <dipm.simulation.configs.JaxMDSimulationConfig>`
 class for more details. Most importantly, the `simulation_type` needs to be set to
 `SimulationType.MINIMIZATION` (see
-:py:class:`SimulationType <mlip.simulation.enums.SimulationType>`).
+:py:class:`SimulationType <dipm.simulation.enums.SimulationType>`).
 
 **Algorithms**: For MD, the NVT-Langevin algorithm is used
 (see `here <https://jax-md.readthedocs.io/en/main/jax_md.simulate.html#jax_md.simulate.nvt_langevin>`_).
@@ -104,7 +103,7 @@ as described above. The following code can be used:
 .. code-block:: python
 
     from ase.io import read as ase_read
-    from mlip.simulation.ase.ase_simulation_engine import ASESimulationEngine
+    from dipm.simulation.ase.ase_simulation_engine import ASESimulationEngine
 
     atoms = ase_read("/path/to/xyz/or/pdb/file")
     force_field = _get_a_trained_force_field_from_somewhere()  # placeholder
@@ -114,22 +113,22 @@ as described above. The following code can be used:
     md_engine.run()
 
 The config class for ASE simulations is
-:py:class:`ASESimulationConfig <mlip.simulation.configs.ase_config.ASESimulationConfig>`
+:py:class:`ASESimulationConfig <dipm.simulation.configs.ase_config.ASESimulationConfig>`
 (accessible via `ASESimulationEngine.Config`).
 As in the JAX-MD case, the format for the input structure is the ``ase.Atoms`` class
 (see the ASE docs `here <https://wiki.fysik.dtu.dk/ase/ase/atoms.html>`_).
 
 The results of the simulation are stored in the
-:py:class:`SimulationState <mlip.simulation.state.SimulationState>` object as
+:py:class:`SimulationState <dipm.simulation.state.SimulationState>` object as
 described in the JAX-MD case above. Also, we recommend that you take note of the units
 of the computed properties as described in the
-:py:class:`SimulationState <mlip.simulation.state.SimulationState>` reference.
+:py:class:`SimulationState <dipm.simulation.state.SimulationState>` reference.
 
 For the settings required for energy minimizations, check out the documentation of the
-:py:class:`ASESimulationConfig <mlip.simulation.configs.ase_config.ASESimulationConfig>`
+:py:class:`ASESimulationConfig <dipm.simulation.configs.ase_config.ASESimulationConfig>`
 class. Most importantly, the `simulation_type` needs to be set to
 `SimulationType.MINIMIZATION` (see
-:py:class:`SimulationType <mlip.simulation.enums.SimulationType>`).
+:py:class:`SimulationType <dipm.simulation.enums.SimulationType>`).
 
 **Algorithms**: For MD, the NVT-Langevin algorithm is used
 (see `here <https://wiki.fysik.dtu.dk/ase/ase/md.html#module-ase.md.langevin>`_).
@@ -142,18 +141,18 @@ Temperature Scheduling
 
 It is also possible to add a temperature schedule to both simulation engines,
 check out the documentation of the
-:py:class:`TemperatureScheduleConfig <mlip.simulation.configs.simulation_config.TemperatureScheduleConfig>`
+:py:class:`TemperatureScheduleConfig <dipm.simulation.configs.simulation_config.TemperatureScheduleConfig>`
 class for more details. This is done by creating an instance of
-:py:class:`TemperatureScheduleConfig <mlip.simulation.configs.simulation_config.TemperatureScheduleConfig>`
+:py:class:`TemperatureScheduleConfig <dipm.simulation.configs.simulation_config.TemperatureScheduleConfig>`
 and passing it under the variable name ``temperature_schedule_config`` to either
-:py:class:`ASESimulationConfig <mlip.simulation.configs.ase_config.ASESimulationConfig>`
-or :py:class:`JaxMDSimulationConfig <mlip.simulation.configs.jax_md_config.JaxMDSimulationConfig>`.
+:py:class:`ASESimulationConfig <dipm.simulation.configs.ase_config.ASESimulationConfig>`
+or :py:class:`JaxMDSimulationConfig <dipm.simulation.configs.JaxMDSimulationConfig>`.
 By default, the method is ``CONSTANT``, which means the target temperature is set at the
 start of the simulation and kept constant throughout its entirety.
 However, other methods are available: ``LINEAR`` and ``TRIANGLE``.
 If you want to use a temperature schedule, you can set the ``method``
 attribute to an instance of the
-:py:class:`TemperatureScheduleMethod <mlip.simulation.enums.TemperatureScheduleMethod>`
+:py:class:`TemperatureScheduleMethod <dipm.simulation.enums.TemperatureScheduleMethod>`
 class and ensure that any other required parameters for the different methods
 have been set appropriately.
 The temperature schedule methods
@@ -164,9 +163,9 @@ that will heat the system from 300 K to 600 K when using the JAX-MD simulation b
 
 .. code-block:: python
 
-    from mlip.simulation.configs import TemperatureScheduleConfig
-    from mlip.simulation.jax_md import JaxMDSimulationEngine
-    from mlip.simulation.enums import TemperatureScheduleMethod
+    from dipm.simulation.configs import TemperatureScheduleConfig
+    from dipm.simulation.jax_md import JaxMDSimulationEngine
+    from dipm.simulation.enums import TemperatureScheduleMethod
 
     temp_schedule_config = TemperatureScheduleConfig(
         method=TemperatureScheduleMethod.LINEAR,
@@ -186,12 +185,12 @@ that will heat the system from 300 K to 600 K when using the JAX-MD simulation b
 Advanced logging
 ----------------
 
-The :py:class:`SimulationEngine <mlip.simulation.simulation_engine.SimulationEngine>`
+The :py:class:`SimulationEngine <dipm.simulation.simulation_engine.SimulationEngine>`
 allows to attach custom loggers to a simulation:
 
 .. code-block:: python
 
-    from mlip.simulation.state import SimulationState
+    from dipm.simulation.state import SimulationState
 
     def logging_fun(state: SimulationState) -> None:
         """You can do anything with the given state here"""
@@ -210,13 +209,13 @@ Batched inference
 
 Instead of running MD simulations or energy minimizations,
 we also provide the function
-:py:func:`run_batched_inference() <mlip.inference.batched_inference.run_batched_inference>`
+:py:func:`run_batched_inference() <dipm.simulation.batched_inference.run_batched_inference>`
 that allows to input a list of `ase.Atoms` objects and returns a list of
-:py:class:`Prediction <mlip.typing.prediction.Prediction>` objects like this:
+:py:class:`Prediction <dipm.typing.prediction.Prediction>` objects like this:
 
 .. code-block:: python
 
-    from mlip.inference import run_batched_inference
+    from dipm.simulation import run_batched_inference
 
     structures = _get_list_of_ase_atoms_from_somewhere()  # placeholder
     force_field = _get_a_trained_force_field_from_somewhere()  # placeholder

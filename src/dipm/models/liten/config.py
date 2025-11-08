@@ -15,7 +15,7 @@
 from pydantic import BaseModel
 
 from dipm.layers import Activation
-from dipm.typing import PositiveInt
+from dipm.typing import PositiveInt, DtypeEnum
 
 
 class LiTENConfig(BaseModel):
@@ -42,6 +42,7 @@ class LiTENConfig(BaseModel):
         num_species: The number of elements (atomic species descriptors) allowed.
                      If ``None`` (default), infer the value from the atomic energies
                      map in the dataset info.
+        param_dtype: The data type of model parameters. Default is ``jnp.float32``.
     """
 
     num_layers: PositiveInt = 2
@@ -52,3 +53,4 @@ class LiTENConfig(BaseModel):
     activation: Activation = Activation.SILU
     atomic_energies: str | dict[int, float] | None = None
     num_species: PositiveInt | None = None
+    param_dtype: DtypeEnum = DtypeEnum.F32

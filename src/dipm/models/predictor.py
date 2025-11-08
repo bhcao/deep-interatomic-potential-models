@@ -16,6 +16,7 @@ from dataclasses import replace
 from typing import TypeAlias
 
 import e3nn_jax as e3nn
+import jax
 import jax.numpy as jnp
 from flax import nnx
 import jraph
@@ -87,9 +88,31 @@ class ForceFieldPredictor(nnx.Module):
             "forces", "stress", "stress_cell", "stress_forces", and "pressure".
             Only the first two exist if ``predict_stress=False`` is set for this module.
         """
-        graph_energies, minus_forces, pseudo_stress = (
-            self._compute_graph_energies_and_grad_wrt_positions(graph, rngs, ctx)
-        )
+        def cast_jraph(x: jax.Array):
+            if jnp.issubdtype(x.dtype, jnp.floating):
+                return x.astype(self.force_model.dtype)
+            return x
+
+        graph = jax.tree.map(cast_jraph, graph)
+
+        if self.force_model.predict_forces:
+            if self.predict_stress:
+                pseudo_stress, (graph_energies, minus_forces) = nnx.grad(
+                    self._compute_energy_and_forces, argnums=1, has_aux=True
+                )(graph.nodes.positions, graph.globals.cell, graph, rngs, ctx)
+            else:
+                graph_energies, minus_forces = self._compute_energy_and_forces( # pylint: disable=W0632
+                    graph.nodes.positions, graph.globals.cell, graph, rngs, ctx
+                )
+        else:
+            if self.predict_stress:
+                (minus_forces, pseudo_stress), graph_energies = nnx.grad(
+                    self._compute_energy_and_forces, argnums=(0, 1), has_aux=True
+                )(graph.nodes.positions, graph.globals.cell, graph, rngs, ctx)
+            else:
+                minus_forces, graph_energies = nnx.grad(
+                    self._compute_energy_and_forces, argnums=0, has_aux=True
+                )(graph.nodes.positions, graph.globals.cell, graph, rngs, ctx)
 
         result = Prediction(
             energy=graph_energies,  # [n_graphs,] energy per cell [eV]
@@ -99,23 +122,11 @@ class ForceFieldPredictor(nnx.Module):
         if not self.predict_stress:
             return result
 
+        # pylint: disable=used-before-assignment
         stress_results = self._compute_stress_results(
             graph, pseudo_stress, minus_forces
         )
         return replace(stress_results, energy=graph_energies, forces=-minus_forces)
-
-    def _compute_graph_energies_and_grad_wrt_positions(
-        self, graph: jraph.GraphsTuple, rngs: nnx.Rngs | None, ctx: dict | None
-    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-        (gradients, pseudo_stress), node_energies = nnx.grad(
-            self._compute_energy, argnums=(0, 1), has_aux=True
-        )(graph.nodes.positions, graph.globals.cell, graph, rngs, ctx)
-
-        graph_energies = e3nn.scatter_sum(
-            node_energies, nel=graph.n_node
-        )  # [ n_graphs,]
-
-        return graph_energies, gradients, pseudo_stress
 
     @staticmethod
     def _compute_stress_results(
@@ -155,14 +166,14 @@ class ForceFieldPredictor(nnx.Module):
             pressure=pressure,  # [n_graphs,] pressure [eV / A^3]
         )
 
-    def _compute_energy(
+    def _compute_energy_and_forces(
         self,
         positions: np.ndarray,
         cell: np.ndarray,
         graph: jraph.GraphsTuple,
         rngs: nnx.Rngs | None,
         ctx: dict | None,
-    ) -> tuple[float, np.ndarray]:
+    ):
         if graph.edges.shifts is None:
             assert graph.edges.displ_fun is not None
             vectors = graph.edges.displ_fun(
@@ -178,15 +189,27 @@ class ForceFieldPredictor(nnx.Module):
                 n_edge=graph.n_edge,
             )
 
-        # TODO(bhcao): Support spin, charge, dataset.
         if isinstance(self.force_model, PrecallInterface):
             if ctx is None:
+                if hasattr(graph.globals, 'charge'):
+                    charge = graph.globals.charge
+                else:
+                    charge = jnp.zeros_like(graph.n_node, dtype=jnp.int32)
+                if hasattr(graph.globals,'spin'):
+                    spin = graph.globals.spin
+                else:
+                    spin = jnp.zeros_like(graph.n_node, dtype=jnp.int32)
+                if hasattr(graph.globals, 'dataset'):
+                    dataset = graph.globals.dataset
+                else:
+                    dataset = jnp.zeros_like(graph.n_node, dtype=jnp.int32)
+
                 ctx = self.force_model.precall(
                     node_species=graph.nodes.species,
-                    charge=jnp.zeros_like(graph.n_node, dtype=jnp.int32),
-                    spin=jnp.zeros_like(graph.n_node, dtype=jnp.int32),
+                    charge=charge,
+                    spin=spin,
                     n_node=graph.n_node,
-                    dataset=["omol"] * len(graph.n_node),
+                    dataset=dataset,
                     rngs=rngs,
                 )
             node_energies = self.force_model(
@@ -197,12 +220,30 @@ class ForceFieldPredictor(nnx.Module):
             node_energies = self.force_model(
                 vectors, graph.nodes.species, graph.senders, graph.receivers, graph.n_node, rngs
             )  # [n_nodes, ]
-        node_energies = node_energies * jraph.get_node_padding_mask(graph)
+
+        if self.force_model.predict_forces:
+            node_energies, forces = node_energies
+
+        node_padding_mask = jraph.get_node_padding_mask(graph)
+        node_energies = node_energies * node_padding_mask
         assert node_energies.shape == (len(positions),), (
             f"model output needs to be an array of shape "
             f"(n_nodes, ) but got {node_energies.shape}"
         )
-        return jnp.sum(node_energies), node_energies
+
+        graph_energies = e3nn.scatter_sum(node_energies, nel=graph.n_node)
+
+        if self.force_model.predict_forces:
+            forces = forces * node_padding_mask[:, None]
+            assert forces.shape == (len(positions), 3), (
+                f"model output needs to be an array of shape (n_nodes, 3) but got {forces.shape}"
+            )
+
+            if self.predict_stress:
+                return jnp.sum(node_energies), graph_energies, -forces
+            return graph_energies, -forces
+
+        return jnp.sum(node_energies), graph_energies
 
     @property
     def cutoff_distance(self) -> float:

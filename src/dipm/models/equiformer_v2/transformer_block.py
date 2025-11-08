@@ -14,7 +14,7 @@
 
 from flax import nnx
 from flax.typing import Dtype
-from flax.nnx.nn import initializers
+from flax.nnx.nn import initializers, dtypes
 import jax
 import jax.numpy as jnp
 
@@ -86,6 +86,7 @@ class SO2EquivariantGraphAttention(nnx.Module):
         attn_act_type: AttntionActivationType = AttntionActivationType.S2_SEP,
         alpha_drop: float = 0.0,
         *,
+        dtype: Dtype | None = None,
         param_dtype: Dtype = jnp.float32,
         rngs: nnx.Rngs,
     ):
@@ -95,7 +96,7 @@ class SO2EquivariantGraphAttention(nnx.Module):
         self.attn_value_channels = attn_value_channels
         self.lmax = mapping_coeffs.lmax
         self.mmax = mapping_coeffs.mmax
-        self.perm = mapping_coeffs.perm
+        self.perm = nnx.Cache(mapping_coeffs.perm)
 
         # Create edge scalar (invariant to rotations) features
         # Embedding function of the atomic numbers
@@ -108,12 +109,12 @@ class SO2EquivariantGraphAttention(nnx.Module):
             self.senders_embedding = nnx.Embed(
                 num_species, edge_channels_list[-1],
                 embedding_init=initializers.normal(stddev=0.001), # Why not xavier?
-                param_dtype=param_dtype, rngs=rngs,
+                dtype=dtype, param_dtype=param_dtype, rngs=rngs,
             )
             self.receivers_embedding = nnx.Embed(
                 num_species, edge_channels_list[-1],
                 embedding_init=initializers.normal(stddev=0.001),
-                param_dtype=param_dtype, rngs=rngs,
+                dtype=dtype, param_dtype=param_dtype, rngs=rngs,
             )
             edge_channels_list[0] = (
                 edge_channels_list[0] + 2 * edge_channels_list[-1]
@@ -141,10 +142,11 @@ class SO2EquivariantGraphAttention(nnx.Module):
                 gradient_normalization=0.0,
                 use_bias=True,
                 use_act_norm=False,
+                dtype=dtype,
                 param_dtype=param_dtype,
                 rngs=rngs,
             )
-            self.expand_index = expand_index(self.lmax)
+            self.expand_index = nnx.Cache(expand_index(self.lmax))
 
         self.so2_conv_1 = SO2Convolution(
             2 * sphere_channels,
@@ -156,6 +158,7 @@ class SO2EquivariantGraphAttention(nnx.Module):
             ),
             # for attention weights and/or gate activation
             extra_m0_output_channels=extra_m0_output_channels,
+            dtype=dtype,
             param_dtype=param_dtype,
             rngs=rngs,
         )
@@ -163,6 +166,7 @@ class SO2EquivariantGraphAttention(nnx.Module):
         if self.use_attn_renorm:
             self.alpha_norm = nnx.LayerNorm(
                 attn_alpha_channels,
+                dtype=dtype,
                 param_dtype=param_dtype,
                 rngs=rngs,
             )
@@ -189,9 +193,9 @@ class SO2EquivariantGraphAttention(nnx.Module):
                 m_prime=True,
             )
         elif attn_act_type == AttntionActivationType.S2_SEP:
-            self.s2_act = SeparableS2Activation(so3_grid, self.perm)
+            self.s2_act = SeparableS2Activation(so3_grid, self.perm.value)
         else:
-            self.s2_act = S2Activation(so3_grid, self.perm)
+            self.s2_act = S2Activation(so3_grid, self.perm.value)
 
         self.so2_conv_2 = SO2Convolution(
             hidden_channels,
@@ -200,6 +204,7 @@ class SO2EquivariantGraphAttention(nnx.Module):
             internal_weights=True,
             edge_channels_list=None,
             extra_m0_output_channels=None,  # for attention weights
+            dtype=dtype,
             param_dtype=param_dtype,
             rngs=rngs,
         )
@@ -208,9 +213,12 @@ class SO2EquivariantGraphAttention(nnx.Module):
             num_heads * attn_value_channels,
             output_channels,
             lmax=self.lmax,
+            dtype=dtype,
             param_dtype=param_dtype,
             rngs=rngs,
         )
+
+        self.dtype = dtype
 
     def __call__(
         self,
@@ -222,6 +230,8 @@ class SO2EquivariantGraphAttention(nnx.Module):
         wigner_matrices: WignerMatrices,
         rngs: nnx.Rngs | None = None,
     ):
+        alpha_dot, = dtypes.promote_dtype((self.alpha_dot.value,), dtype=self.dtype)
+
         num_nodes = node_feats.shape[0]
         # Compute edge scalar features (invariant to rotations)
         # Uses atomic numbers and edge distance as inputs
@@ -248,7 +258,7 @@ class SO2EquivariantGraphAttention(nnx.Module):
                 -1, (self.lmax + 1), 2 * self.sphere_channels
             )
             # [E, (L_max + 1) ** 2, C]
-            edge_embeds_weight = edge_embeds_weight[:, self.expand_index]
+            edge_embeds_weight = edge_embeds_weight[:, self.expand_index.value]
             messages = messages * edge_embeds_weight
 
         # Rotate the irreps to align with the edge, get m primary
@@ -282,7 +292,7 @@ class SO2EquivariantGraphAttention(nnx.Module):
         )
         x_0_alpha = self.alpha_norm(x_0_alpha)
         x_0_alpha = self.alpha_act(x_0_alpha)
-        alpha = jnp.einsum("bik, ik -> bi", x_0_alpha, self.alpha_dot.value)
+        alpha = jnp.einsum("bik, ik -> bi", x_0_alpha, alpha_dot)
         alpha = pyg_softmax(alpha, receivers, num_nodes)
         alpha = alpha.reshape(alpha.shape[0], 1, self.num_heads, 1)
         if self.alpha_dropout is not None:
@@ -336,6 +346,7 @@ class FeedForwardNetwork(nnx.Module):
         so3_grid_lmax: SO3Grid,
         ff_type: FeedForwardType,
         *,
+        dtype: Dtype | None = None,
         param_dtype: Dtype = jnp.float32,
         rngs: nnx.Rngs,
     ):
@@ -344,12 +355,12 @@ class FeedForwardNetwork(nnx.Module):
 
         self.so3_linear_1 = SO3LinearV2(
             sphere_channels, hidden_channels, lmax=lmax,
-            param_dtype=param_dtype, rngs=rngs
+            dtype=dtype, param_dtype=param_dtype, rngs=rngs
         )
 
         self.so3_linear_2 = SO3LinearV2(
             hidden_channels, output_channels, lmax=lmax,
-            param_dtype=param_dtype, rngs=rngs
+            dtype=dtype, param_dtype=param_dtype, rngs=rngs
         )
 
         if ff_type in [FeedForwardType.GRID, FeedForwardType.GRID_SEP]:
@@ -358,6 +369,7 @@ class FeedForwardNetwork(nnx.Module):
                     nnx.Linear(
                         sphere_channels,
                         hidden_channels,
+                        dtype=dtype,
                         param_dtype=param_dtype,
                         rngs=rngs,
                     ),
@@ -368,17 +380,17 @@ class FeedForwardNetwork(nnx.Module):
             self.grid_mlp = nnx.Sequential(
                 nnx.Linear(
                     hidden_channels, hidden_channels, use_bias=False,
-                    param_dtype=param_dtype, rngs=rngs
+                    dtype=dtype, param_dtype=param_dtype, rngs=rngs
                 ),
                 nnx.silu,
                 nnx.Linear(
                     hidden_channels, hidden_channels, use_bias=False,
-                    param_dtype=param_dtype, rngs=rngs
+                    dtype=dtype, param_dtype=param_dtype, rngs=rngs
                 ),
                 nnx.silu,
                 nnx.Linear(
                     hidden_channels, hidden_channels, use_bias=False,
-                    param_dtype=param_dtype, rngs=rngs
+                    dtype=dtype, param_dtype=param_dtype, rngs=rngs
                 ),
             )
             return
@@ -387,13 +399,14 @@ class FeedForwardNetwork(nnx.Module):
             self.gating_linear = nnx.Linear(
                 sphere_channels,
                 lmax * hidden_channels,
+                dtype=dtype,
                 param_dtype=param_dtype,
                 rngs=rngs,
             )
             self.gate_act = GateActivation(lmax, lmax, hidden_channels)
         if ff_type == FeedForwardType.S2_SEP:
             self.gating_linear = nnx.Linear(
-                sphere_channels, hidden_channels, param_dtype=param_dtype, rngs=rngs
+                sphere_channels, hidden_channels, dtype=dtype, param_dtype=param_dtype, rngs=rngs
             )
             self.s2_act = SeparableS2Activation(so3_grid_lmax)
         else:

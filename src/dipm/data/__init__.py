@@ -13,6 +13,8 @@
 # limitations under the License.
 
 from dipm.data.chemical_system import ChemicalSystem
-from dipm.data.configs import ChemicalSystemsReaderConfig, GraphDatasetBuilderConfig
+from dipm.data.configs import ChemicalDatasetsConfig, GraphDatasetBuilderConfig
 from dipm.data.dataset_info import DatasetInfo
 from dipm.data.graph_dataset_builder import GraphDatasetBuilder
+from dipm.data.chemical_datasets.dataset import Dataset, ConcatDataset, Subset
+from dipm.data.chemical_datasets.hdf5_dataset import create_datasets

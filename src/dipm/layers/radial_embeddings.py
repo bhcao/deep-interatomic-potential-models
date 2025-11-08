@@ -58,7 +58,7 @@ class RadialEmbeddingLayer(nnx.Module):
                 factor = 1.0
             else:
                 samples = jnp.linspace(
-                    self.avg_r_min, self.r_max, 1000, dtype=jnp.float32
+                    self.avg_r_min, self.r_max, 1000, dtype=edge_lengths.dtype
                 )
                 factor = jnp.mean(self.func(samples) ** 2).item() ** -0.5
 

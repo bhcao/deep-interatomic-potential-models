@@ -27,7 +27,7 @@ import numpy as np
 from jax_md import quantity
 from jax_md.dataclasses import dataclass as jax_compatible_dataclass
 
-from dipm.simulation.jax_md.jax_md_config import JaxMDSimulationConfig
+from dipm.simulation.configs import JaxMDSimulationConfig
 from dipm.simulation.enums import SimulationType
 from dipm.simulation.exceptions import SimulationIsNotInitializedError
 from dipm.simulation.jax_md.helpers import (
@@ -209,6 +209,8 @@ class JaxMDSimulationEngine(SimulationEngine):
     def _get_model_calculate_fun(
         graph: jraph.GraphsTuple, force_field: ForceFieldPredictor
     ) -> ModelEnergyFun | ModelForcesFun:
+        force_field.eval()
+
         def calc_func(
             positions: np.ndarray,
             system_state: SystemState,

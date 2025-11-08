@@ -67,16 +67,18 @@ class NeighborEmbedding(nnx.Module):
         cutoff: float,
         num_species: int = 100,
         *,
+        dtype: Dtype | None = None,
         param_dtype: Dtype = jnp.float32,
         rngs: nnx.Rngs,
     ):
         self.embedding = nnx.Embed(
-            num_species, num_channels, param_dtype=param_dtype, rngs=rngs
+            num_species, num_channels, dtype=dtype, param_dtype=param_dtype, rngs=rngs
         )
         self.distance_proj = nnx.Linear(
             num_rbf,
             num_channels,
             kernel_init=initializers.xavier_uniform(),
+            dtype=dtype,
             param_dtype=param_dtype,
             rngs=rngs,
         )
@@ -84,6 +86,7 @@ class NeighborEmbedding(nnx.Module):
             2 * num_channels,
             num_channels,
             kernel_init=initializers.xavier_uniform(),
+            dtype=dtype,
             param_dtype=param_dtype,
             rngs=rngs,
         )
@@ -116,6 +119,7 @@ class EdgeEmbedding(nnx.Module):
         num_rbf: int,
         num_channels: int,
         *,
+        dtype: Dtype | None = None,
         param_dtype: Dtype = jnp.float32,
         rngs: nnx.Rngs,
     ):
@@ -123,6 +127,7 @@ class EdgeEmbedding(nnx.Module):
             num_rbf,
             num_channels,
             kernel_init=initializers.xavier_uniform(),
+            dtype=dtype,
             param_dtype=param_dtype,
             rngs=rngs,
         )
@@ -148,6 +153,7 @@ class GatedEquivariantBlock(nnx.Module):
         scalar_activation: bool = False,
         ignore_vec_output: bool = False,
         *,
+        dtype: Dtype | None = None,
         param_dtype: Dtype = jnp.float32,
         rngs: nnx.Rngs,
     ):
@@ -160,6 +166,7 @@ class GatedEquivariantBlock(nnx.Module):
             num_channels if ignore_vec_output else num_channels + out_channels,
             use_bias=False,
             kernel_init=initializers.xavier_uniform(),
+            dtype=dtype,
             param_dtype=param_dtype,
             rngs=rngs,
         )
@@ -169,6 +176,7 @@ class GatedEquivariantBlock(nnx.Module):
                 feat_channels + vec_channels,
                 intermediate_channels,
                 kernel_init=initializers.xavier_uniform(),
+                dtype=dtype,
                 param_dtype=param_dtype,
                 rngs=rngs,
             ),
@@ -177,6 +185,7 @@ class GatedEquivariantBlock(nnx.Module):
                 intermediate_channels,
                 out_channels if ignore_vec_output else out_channels * 2,
                 kernel_init=initializers.xavier_uniform(),
+                dtype=dtype,
                 param_dtype=param_dtype,
                 rngs=rngs,
             ),
@@ -229,6 +238,7 @@ class Scalar(OutputModel):
         num_channels: int,
         activation: str = "silu",
         *,
+        dtype: Dtype | None = None,
         param_dtype: Dtype = jnp.float32,
         rngs: nnx.Rngs,
     ):
@@ -237,6 +247,7 @@ class Scalar(OutputModel):
                 feat_channels,
                 num_channels // 2,
                 kernel_init=initializers.xavier_uniform(),
+                dtype=dtype,
                 param_dtype=param_dtype,
                 rngs=rngs,
             ),
@@ -245,6 +256,7 @@ class Scalar(OutputModel):
                 num_channels // 2,
                 1,
                 kernel_init=initializers.xavier_uniform(),
+                dtype=dtype,
                 param_dtype=param_dtype,
                 rngs=rngs,
             ),
@@ -262,6 +274,7 @@ class EquivariantScalar(OutputModel):
         num_channels: int,
         activation: str = "silu",
         *,
+        dtype: Dtype | None = None,
         param_dtype: Dtype = jnp.float32,
         rngs: nnx.Rngs,
     ):
@@ -273,6 +286,7 @@ class EquivariantScalar(OutputModel):
                 num_channels // 2,
                 activation=activation,
                 scalar_activation=True,
+                dtype=dtype,
                 param_dtype=param_dtype,
                 rngs=rngs,
             ),
@@ -284,6 +298,7 @@ class EquivariantScalar(OutputModel):
                 activation=activation,
                 scalar_activation=False,
                 ignore_vec_output=True,
+                dtype=dtype,
                 param_dtype=param_dtype,
                 rngs=rngs,
             ),

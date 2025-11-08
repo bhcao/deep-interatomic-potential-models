@@ -15,7 +15,7 @@
 from pydantic import BaseModel
 
 from dipm.layers.escn import LayerNormType
-from dipm.typing import PositiveInt, NonNegativeInt
+from dipm.typing import PositiveInt, NonNegativeInt, DtypeEnum
 
 
 class EquiformerV2Config(BaseModel):
@@ -61,6 +61,8 @@ class EquiformerV2Config(BaseModel):
                          one in the dataset info, that is used.
         num_species: The number of elements (atomic species descriptors) allowed. If ``None``
                      (default), infer the value from the atomic energies map in the dataset info.
+        param_dtype: The data type of model parameters. Default is ``jnp.float32``.
+        force_head: Whether to predict forces with forces head. Default is ``False``.
     """
 
     num_layers: PositiveInt = 12
@@ -88,3 +90,5 @@ class EquiformerV2Config(BaseModel):
     avg_num_nodes: float | None = 77.81317
     atomic_energies: str | dict[int, float] | None = None
     num_species: PositiveInt | None = None
+    param_dtype: DtypeEnum = DtypeEnum.F32
+    force_head: bool = False

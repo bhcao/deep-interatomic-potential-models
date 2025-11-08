@@ -1,6 +1,6 @@
 .. _mlip_training:
 
-.. module:: mlip.training
+.. module:: dipm.training
 
 Model training
 ==============
@@ -11,11 +11,7 @@ This module contains all code related to model training.
     :maxdepth: 1
 
     training_loop
-    training_loop_config
-    training_state
     training_step
     optimizer
-    ema
     training_io_handling
     evaluation
-    finetuning

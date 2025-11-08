@@ -44,43 +44,6 @@ def _validate_proportions(proportions: DataSplitProportions) -> None:
         raise SplitProportionsInvalidError("Training set must be non-empty.")
 
 
-def split_data_randomly(
-    data: list[Any], proportions: DataSplitProportions, seed: int
-) -> tuple[list[Any], list[Any], list[Any]]:
-    """Splits the data randomly.
-
-    Args:
-        data: The data, which must be a list of any object.
-        proportions: The dataset proportions. These must sum to one and none of these
-                     can be larger than one. The train proportion must also be greater
-                     than zero.
-        seed: The random seed for the split.
-
-    Returns:
-        The split data, which are three lists of the objects, referring to training set,
-        validation set, and test set. The latter two can be empty if the given
-        proportions were zero.
-    """
-    _validate_proportions(proportions)
-    random.seed(seed)
-    random.shuffle(data)
-
-    num_data = len(data)
-    num_train_data = int(proportions.train * num_data)
-    num_test_data = int(proportions.test * num_data)
-
-    train_set = data[:num_train_data]
-    test_set = data[-num_test_data:]
-
-    # make sure validation set is empty if proportion was zero
-    # regardless of rounding errors above
-    validation_set = (
-        [] if proportions.validation == 0.0 else data[num_train_data:-num_test_data]
-    )
-
-    return train_set, validation_set, test_set
-
-
 def split_data_randomly_by_group(
     data: list[Any],
     proportions: DataSplitProportions,
