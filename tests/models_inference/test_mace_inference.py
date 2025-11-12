@@ -15,7 +15,7 @@
 import numpy as np
 import pytest
 
-from mlip.data.helpers.dynamically_batch import dynamically_batch
+from dipm.data.helpers.dynamically_batch import dynamically_batch
 
 
 def test_mace_outputs_correct_forces_and_energies_for_example_graph(

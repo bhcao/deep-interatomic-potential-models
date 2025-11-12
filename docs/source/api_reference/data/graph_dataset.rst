@@ -1,6 +1,6 @@
 .. _graph_dataset:
 
-.. module:: mlip.data.helpers.graph_dataset
+.. module:: dipm.data.helpers.graph_dataset
 
 Graph Dataset
 =============
@@ -12,5 +12,3 @@ Graph Dataset
     .. automethod:: __iter__
 
     .. automethod:: __len__
-
-    .. automethod:: subset

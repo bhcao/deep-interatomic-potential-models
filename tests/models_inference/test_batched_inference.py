@@ -19,7 +19,7 @@ import ase
 import numpy as np
 import pytest
 
-from mlip.inference import run_batched_inference
+from dipm.simulation import run_batched_inference
 
 
 @pytest.mark.parametrize("use_single_structure", [True, False])

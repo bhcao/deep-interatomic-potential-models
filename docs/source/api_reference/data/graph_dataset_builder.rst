@@ -1,6 +1,6 @@
 .. _graph_dataset_builder:
 
-.. module:: mlip.data.graph_dataset_builder
+.. module:: dipm.data.graph_dataset_builder
 
 Graph Dataset Builder
 =====================

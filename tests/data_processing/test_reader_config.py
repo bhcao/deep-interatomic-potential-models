@@ -17,7 +17,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from mlip.data.configs import ChemicalSystemsReaderConfig
+from dipm.data.configs import ChemicalDatasetsConfig
 
 DATA_DIR = Path(__file__).parent.parent / "data"
 SPICE_SMALL_HDF5_PATH = DATA_DIR / "spice2-1000_429_md_0-1.hdf5"
@@ -33,7 +33,7 @@ SPICE_SMALL_HDF5_PATH = DATA_DIR / "spice2-1000_429_md_0-1.hdf5"
     ],
 )
 def test_reader_config_paths_are_converted_to_lists(in_paths, expected_type):
-    config = ChemicalSystemsReaderConfig(
+    config = ChemicalDatasetsConfig(
         reader_type="extxyz",
         train_dataset_paths=in_paths,
         valid_dataset_paths=[],
@@ -55,7 +55,7 @@ def test_reader_config_train_path_must_be_defined():
     with pytest.raises(
         ValidationError,
     ):
-        ChemicalSystemsReaderConfig(
+        ChemicalDatasetsConfig(
             train_dataset_paths=[],
             valid_dataset_paths=[],
             test_dataset_paths=[],

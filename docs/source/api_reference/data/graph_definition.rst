@@ -1,6 +1,6 @@
 .. _graph_definition:
 
-.. module:: mlip.typing.graph_definition
+.. module:: dipm.typing.graph_definition
 
 Graph Definition
 ================

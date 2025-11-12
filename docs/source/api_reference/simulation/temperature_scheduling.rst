@@ -1,6 +1,6 @@
 .. _temperature_scheduling:
 
-.. module:: mlip.simulation.temperature_scheduling
+.. module:: dipm.simulation.temperature_scheduling
 
 Temperature scheduling
 ======================

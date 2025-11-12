@@ -1,6 +1,6 @@
 .. _mlip_data:
 
-.. module:: mlip.data
+.. module:: dipm.data
 
 Data processing
 ===============
@@ -11,7 +11,7 @@ This module contains all code related to dataset reading and processing.
     :maxdepth: 1
 
     graph_dataset_builder
-    chemical_systems_readers/index
+    chemical_datasets/index
     chemical_system
     dataset_info
     dataset_configs

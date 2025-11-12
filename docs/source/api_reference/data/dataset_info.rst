@@ -1,6 +1,6 @@
 .. _dataset_info:
 
-.. module:: mlip.data.dataset_info
+.. module:: dipm.data.dataset_info
 
 Dataset Info
 ============

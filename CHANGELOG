@@ -1,11 +1,39 @@
 # Changelog
 
-## Release 0.1.6
+## Release 0.0.3
+
+- Adding support for mixed precision training
+- Adding support for force head in EquiformerV2 and UMA models
+- Fixing parallel training
+- Fixing nan gradients of SO2 Convolution in special cases and incorrect MACE irreps
+- Adapting docs for DIPM
+
+## Release 0.0.2
+
+- Adding model architectures: EquiformerV2, UMA
+- Providing tools for downloading, decompressing, splitting, merging and converting
+  LMDB and ExtXYZ datasets to HDF5 datasets, and removing ExtXYZ dataset support
+- Making HDF5 format to be compatible with the format used by MACE library
+- Supporting input of dataset directory, parallel loading, and automatic train/val/test
+  splitting
+
+## Release 0.0.1
+
+- Adding model architectures: LiTEN
+- Changing the repository name and reorganizing the code structure
+- Migrating from flax.linen to flax.nnx
+- Renaming function or class: MlipNetwork -> ForceModel, parse_activation -> 
+  get_activation_fn, RadialEmbeddingBlock -> RadialEmbeddingLayer, etc.
+- Deleting ASE simulation backend
+- Deleting `swish` activation (equal to `silu`)
+- Changing the model file format from `.zip` to `.safetensors`
+
+## Release 0.1.6 (MLIP)
 
 - Fixing incorrect instructions for GPU-compatible installation: most shells require
   quotes around pip installations with extras.
 
-## Release 0.1.5
+## Release 0.1.5 (MLIP)
 
 - Adding batched simulations feature for MD simulations and energy minimizations
   with the JAX-MD backend.
@@ -24,7 +52,7 @@
 - Removing need for separate install command for JAX-MD dependency.
 - Adding easier install method for GPU-compatible JAX.
 
-## Release 0.1.4
+## Release 0.1.4 (MLIP)
 
 - Removing constraints on some dependencies, such as numpy, jax, and flax. The mlip
   library now allows for more flexibility in dependency versions for downstream
@@ -40,7 +68,7 @@
   and 0 Kelvin pressure term. These features should still be seen as beta for now
   as we proceed to test them further (see docstrings for more details).
 
-## Release 0.1.3
+## Release 0.1.3 (MLIP)
 
 - Adding two new options to our MACE implementation (see `MaceConfig`, these features
   should be considered in beta state for now):
@@ -57,7 +85,7 @@
   should not be considered reliable for now, and will be fixed in an upcoming
   release.
 
-## Release 0.1.2
+## Release 0.1.2 (MLIP)
 
 - Fixing the computation of metrics during training, by reweighting the metrics of
   each batch to account for a varying number of real graphs per batch; this results
@@ -70,12 +98,12 @@
   separately for a model checkpoint if necessary
 - Small amount of modifications to README and documentation
 
-## Release 0.1.1
+## Release 0.1.1 (MLIP)
 
 - Small amount of modifications to README and documentation
 - Adding link to white paper in README
 
-## Release 0.1.0
+## Release 0.1.0 (MLIP)
 
 - Implemented model architectures: MACE, NequIP and ViSNet
 - Dataset preprocessing

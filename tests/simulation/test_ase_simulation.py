@@ -18,9 +18,9 @@ import numpy as np
 import pytest
 from pydantic import ValidationError
 
-from mlip.simulation.ase.ase_simulation_engine import ASESimulationEngine
-from mlip.simulation.configs.ase_config import TemperatureScheduleConfig
-from mlip.simulation.enums import SimulationType, TemperatureScheduleMethod
+from dipm.simulation.ase.ase_simulation_engine import ASESimulationEngine
+from dipm.simulation.configs import TemperatureScheduleConfig
+from dipm.simulation.enums import SimulationType, TemperatureScheduleMethod
 
 
 def test_md_can_be_run_with_ase_backend(setup_system_and_mace_model) -> None:

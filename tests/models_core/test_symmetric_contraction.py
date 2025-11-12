@@ -19,7 +19,7 @@ import flax
 import jax.numpy as np
 import jax.random as random
 
-from mlip.models.mace.symmetric_contraction import SymmetricContraction
+from dipm.models.mace.symmetric_contraction import SymmetricContraction
 
 # is there a jax/flax PyTree type?
 Params: TypeAlias = dict

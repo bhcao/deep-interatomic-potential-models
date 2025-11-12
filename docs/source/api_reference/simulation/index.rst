@@ -1,6 +1,6 @@
 .. _mlip_simulation:
 
-.. module:: mlip.simulation
+.. module:: dipm.simulation
 
 Simulations
 ===========
@@ -16,9 +16,7 @@ This module contains all code related to simulations (e.g., MD or energy minimiz
     enums
     graph_from_atoms
     jaxmd_engine
-    jaxmd_sim_config
     ase_engine
     ase_calculator
-    ase_sim_config
     temperature_scheduling
     batched_inference

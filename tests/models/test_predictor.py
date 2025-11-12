@@ -3,9 +3,9 @@ import jraph
 import numpy as np
 import pytest
 
-from mlip.data import ChemicalSystem
-from mlip.data.helpers import create_graph_from_chemical_system
-from mlip.models import ForceField
+from dipm.data import ChemicalSystem
+from dipm.data.helpers import create_graph_from_chemical_system
+from dipm.models import ForceField
 
 
 def _salt_graph_from_positions(

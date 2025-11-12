@@ -1,4 +1,4 @@
-# 🪩 MLIP: Machine Learning Interatomic Potentials 🚀
+# ⚛️ DIPM: Deep Interatomic Potentials Models in JAX 🚀
 
 [![uv](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/uv/main/assets/badge/v0.json)](https://github.com/astral-sh/uv)
 [![Python 3.11](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-blue)](https://www.python.org/downloads/release/python-3110/)
@@ -8,10 +8,11 @@
 
 ## 👀 Overview
 
-*mlip* is a Python library for training and deploying
-**Machine Learning Interatomic Potentials (MLIP)** written in JAX. It provides
-the following functionality:
-- Multiple model architectures (for now: MACE, NequIP and ViSNet)
+*dipm* is a enhancement of [MLIP](https://github.com/instadeepai/mlip) standing
+for **Deep Interatomic Potentials Models (DIPM)**. It provides the following
+functionality:
+
+- Multiple NNX model architectures (for now: MACE, NequIP, ViSNet, LiTEN, EquiformerV2 and UMA)
 - Dataset loading and preprocessing
 - Training and fine-tuning MLIP models
 - Batched inference with trained MLIP models
@@ -37,19 +38,25 @@ to get started. For detailed instructions, visit our extensive
 [code documentation](https://instadeepai.github.io/mlip/).
 
 This repository currently supports implementations of:
+
 - [MACE](https://arxiv.org/abs/2206.07697)
 - [NequIP](https://www.nature.com/articles/s41467-022-29939-5)
 - [ViSNet](https://www.nature.com/articles/s41467-023-43720-2)
+- [LiTEN](https://arxiv.org/abs/2507.00884)
+- [EquiformerV2](https://openreview.net/forum?id=mCOBKZmrzD)
+- [UMA](https://arxiv.org/abs/2506.23971)
 
 As the backend for equivariant operations, the current version of the code relies
 on the [e3nn](https://zenodo.org/records/6459381) library.
 
 ## 📦 Installation
 
-*mlip* can be installed via pip like this:
+Please use python 3.10 or later because we rely on type annotations and other features introduced in this version.
+
+*dipm* can be installed via pip like this:
 
 ```bash
-pip install mlip
+pip install dipm
 ```
 
 However, this command **only installs the regular CPU version** of JAX.
@@ -57,15 +64,35 @@ We recommend that the library is run on GPU.
 Use this command instead to install the GPU-compatible version:
 
 ```bash
-pip install "mlip[cuda]"
+pip install "dipm[cuda]"
 ```
 
 **This command installs the CUDA 12 version of JAX.** For different versions, please
 install *mlip* without the `cuda` flag and install the desired JAX version via pip.
 
-Note that using the TPU version of JAX is, in principle, also supported by
-this library. You need to install it separately via pip. However, it has not been
-thoroughly tested and should therefore be considered an experimental feature.
+Simulation related tasks such as MD or energy minimization will require
+[JAX-MD](https://github.com/jax-md/jax-md) and [ASE](https://gitlab.com/ase/ase)
+as dependencies. ASE can be installed as an optional dependency while the newest
+version of JAX-MD must be installed directly from the GitHub repository to avoid
+critical bugs. Here is the installation commands:
+
+```bash
+pip install git+https://github.com/jax-md/jax-md.git
+pip install dipm[cuda,md]
+```
+
+Furthermore, note that among our library dependencies we have pinned the versions
+for *jaxlib*, *matscipy*, and *orbax-checkpoint* to one specific version only to
+prioritize reliability, however, we plan to allow for a more flexible definition of
+our dependencies in upcoming releases.
+
+## 📚 Dataset preparation
+
+We only support HDF5 format datasets (compatible with HDF5 used in
+[MACE](https://github.com/ACEsuit/mace)). We provided a dataset conversion toolkit
+[DIPM-Cvt](./dipm-conversion-tools) for this purpose. We recommend to install it in
+a different environment than *dipm* to avoid conflicts. We provided a command-line
+interface `dipm-cvt-cli` for user-friendly usage.
 
 ## ⚡ Examples
 
@@ -74,9 +101,9 @@ In addition to the in-depth tutorials provided as part of our documentation
 we also provide example Jupyter notebooks that can be used as
 simple templates to build your own MLIP pipelines:
 
-- [Inference and simulation](https://github.com/instadeepai/mlip/blob/main/tutorials/simulation_tutorial.ipynb)
-- [Model training](https://github.com/instadeepai/mlip/blob/main/tutorials/model_training_tutorial.ipynb)
-- [Addition of new models](https://github.com/instadeepai/mlip/blob/main/tutorials/model_addition_tutorial.ipynb)
+- [Inference and simulation](https://github.com/bhcao/deep-interatomic-potential-models/blob/main/tutorials/simulation_tutorial.ipynb)
+- [Model training](https://github.com/bhcao/deep-interatomic-potential-models/blob/main/tutorials/model_training_tutorial.ipynb)
+- [Addition of new models](https://github.com/bhcao/deep-interatomic-potential-models/blob/main/tutorials/model_addition_tutorial.ipynb)
 
 To run the tutorials, just install Jupyter notebooks via pip and launch it from
 a directory that contains the notebooks:
@@ -88,18 +115,7 @@ pip install notebook && jupyter notebook
 The installation of *mlip* itself is included within the notebooks. We recommend to
 run these notebooks with GPU acceleration enabled.
 
-Alternatively, we provide a `Dockerfile` in this repository that you can use to
-run the tutorial notebooks. This can be achieved by executing the following lines
-from any directory that contains the downloaded `Dockerfile`:
-
-```bash
-docker build . -t mlip_tutorials
-docker run -p 8888:8888 --gpus all mlip_tutorials
-```
-
-Note that this will only work on machines with NVIDIA GPUs.
-Once running, you can access the Jupyter notebook server by clicking on the URL
-displayed in the console of the form "http[]()://127.0.0.1:8888/tree?token=abcdef...".
+For coding-free training, use `python scripts/train.py scripts/train.yaml` and adapt the config file (`scripts/train.yaml`) to your needs.
 
 ## 🤗 Pre-trained models (via HuggingFace)
 
@@ -157,10 +173,9 @@ We would like to acknowledge beta testers for this library: Isabel Wilkinson,
 Nick Venanzi, Hassan Sirelkhatim, Leon Wehrhan, Sebastien Boyer, Massimo Bortone,
 Scott Cameron, Louis Robinson, Tom Barrett, and Alex Laterre.
 
-## 📚 Citing our work
+## 📚 Citing
 
-We kindly request that you to cite [our white paper](https://arxiv.org/abs/2505.22397)
-when using this library:
+Here is the citing entry of original repository [MILP](https://arxiv.org/abs/2505.22397):
 
 C. Brunken, O. Peltre, H. Chomet, L. Walewski, M. McAuliffe, V. Heyraud,
 S. Attias, M. Maarand, Y. Khanfir, E. Toledo, F. Falcioni, M. Bluntzer,

@@ -6,9 +6,9 @@
 # -- Project information -----------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
-project = "MLIP"
-copyright = "2025, InstaDeep"  # noqa: A001
-author = "InstaDeep"
+project = "DIPM"
+copyright = "2025, InstaDeep & Cao Bohan"  # noqa: A001
+author = "InstaDeep & Cao Bohan"
 
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration

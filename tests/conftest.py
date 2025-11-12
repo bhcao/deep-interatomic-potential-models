@@ -24,11 +24,11 @@ import pydantic
 import pytest
 from ase.io import read as ase_read_atoms
 
-from mlip.data import ChemicalSystem, DatasetInfo
-from mlip.data.helpers import create_graph_from_chemical_system
-from mlip.models import ForceField, Mace, Nequip, Visnet
-from mlip.models.mlip_network import MLIPNetwork
-from mlip.simulation.utils import create_graph_from_atoms
+from dipm.data import ChemicalSystem, DatasetInfo
+from dipm.data.helpers import create_graph_from_chemical_system
+from dipm.models import ForceFieldPredictor, Mace, Nequip, Visnet
+from dipm.models.force_model import ForceModel
+from dipm.simulation.utils import create_graph_from_atoms
 
 CUTOFF_ANGSTROM = 3.0
 XYZ_FILE_PATH = Path(__file__).parent / "data" / "Dimethyl_sulfoxide.xyz"
@@ -91,7 +91,7 @@ def setup_system_and_mace_model(setup_system):
     }
 
     mace_model = Mace(Mace.Config(**mace_kwargs), dataset_info)
-    mace_ff = ForceField.from_mlip_network(
+    mace_ff = ForceFieldPredictor.from_force_model(
         mace_model,
         seed=42,
         predict_stress=False,
@@ -105,7 +105,7 @@ def setup_system_and_mace_model(setup_system):
         np.shape, mace_params
     )
 
-    mace_ff = ForceField(mace_ff.predictor, mace_params)
+    mace_ff = ForceFieldPredictor(mace_ff.predictor, mace_params)
     mace_apply_fun = jax.jit(mace_ff.predictor.apply)
 
     return atoms, graph, mace_apply_fun, mace_ff
@@ -126,7 +126,7 @@ def setup_system_and_visnet_model(setup_system):
         "vecnorm_type": "max_min",
     }
     visnet_model = Visnet(Visnet.Config(**visnet_kwargs), dataset_info)
-    visnet_ff = ForceField.from_mlip_network(
+    visnet_ff = ForceFieldPredictor.from_force_model(
         visnet_model,
         seed=42,
         predict_stress=False,
@@ -140,7 +140,7 @@ def setup_system_and_visnet_model(setup_system):
         np.shape, visnet_params
     )
 
-    visnet_ff = ForceField(visnet_ff.predictor, visnet_params)
+    visnet_ff = ForceFieldPredictor(visnet_ff.predictor, visnet_params)
     visnet_apply_fun = jax.jit(visnet_ff.predictor.apply)
 
     return atoms, graph, visnet_apply_fun, visnet_ff
@@ -162,7 +162,7 @@ def setup_system_and_nequip_model(setup_system):
         "scalar_mlp_std": 4.0,
     }
     nequip_model = Nequip(Nequip.Config(**nequip_kwargs), dataset_info)
-    nequip_ff = ForceField.from_mlip_network(
+    nequip_ff = ForceFieldPredictor.from_force_model(
         nequip_model,
         seed=42,
         predict_stress=False,
@@ -176,7 +176,7 @@ def setup_system_and_nequip_model(setup_system):
         np.shape, nequip_params
     )
 
-    nequip_ff = ForceField(nequip_ff.predictor, nequip_params)
+    nequip_ff = ForceFieldPredictor(nequip_ff.predictor, nequip_params)
     nequip_apply_fun = jax.jit(nequip_ff.predictor.apply)
 
     return atoms, graph, nequip_apply_fun, nequip_ff
@@ -205,10 +205,10 @@ def salt_graph() -> jraph.GraphsTuple:
     return graph
 
 
-class QuadraticMLIP(MLIPNetwork):
+class QuadraticMLIP(ForceModel):
     """A simple energy model with quadratic interaction potentials.
 
-    Should be reused to isolate tests on `ForceFieldPredictor` variants
+    Should be reused to isolate tests on `ForceFieldPredictorPredictor` variants
     from our larger `MLIPNetwork` architectures.
 
     Its simple form also allows for numerical checks, e.g. on Hessian predictions.
@@ -234,7 +234,7 @@ class QuadraticMLIP(MLIPNetwork):
 
 
 @pytest.fixture(scope="session")
-def quadratic_mlip() -> MLIPNetwork:
+def quadratic_mlip() -> ForceModel:
     dataset_info = DatasetInfo(
         atomic_energies_map={11: 0.0, 17: 0.0},
         cutoff_distance_angstrom=0.95,

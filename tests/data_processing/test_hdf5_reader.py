@@ -20,10 +20,10 @@ import jraph
 import numpy as np
 import pytest
 
-from mlip.data.chemical_system import ChemicalSystem
-from mlip.data.chemical_systems_readers.hdf5_reader import Hdf5Reader
-from mlip.data.configs import ChemicalSystemsReaderConfig, GraphDatasetBuilderConfig
-from mlip.data.graph_dataset_builder import (
+from dipm.data.chemical_system import ChemicalSystem
+from dipm.data.chemical_datasets.hdf5_reader import Hdf5Reader
+from dipm.data.configs import ChemicalDatasetsConfig, GraphDatasetBuilderConfig
+from dipm.data.graph_dataset_builder import (
     DatasetsHaveNotBeenProcessedError,
     GraphDataset,
     GraphDatasetBuilder,
@@ -36,7 +36,7 @@ SPICE_SMALL_HDF5_PATH = DATA_DIR / "spice2-1000_429_md_0-1.hdf5"
 
 @pytest.mark.parametrize("train_num_to_load", [None, 1])
 def test_hdf5_reading_works_correctly_with_two_hdf5s(train_num_to_load):
-    reader_config = ChemicalSystemsReaderConfig(
+    reader_config = ChemicalDatasetsConfig(
         train_dataset_paths=[
             SPICE_SMALL_HDF5_PATH.resolve(),
             SPICE_SMALL_HDF5_PATH.resolve(),
@@ -79,7 +79,7 @@ def test_builder_works_correctly(use_formation_energies):
     max_n_node = 30
     max_n_edge = 90
     graph_cutoff_angstrom = 5.0
-    reader_config = ChemicalSystemsReaderConfig(
+    reader_config = ChemicalDatasetsConfig(
         train_dataset_paths=[SPICE_SMALL_HDF5_PATH.resolve()],
         valid_dataset_paths=None,
         test_dataset_paths=None,

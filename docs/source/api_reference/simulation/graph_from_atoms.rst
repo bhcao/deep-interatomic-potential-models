@@ -1,6 +1,6 @@
 .. _graph_from_atoms:
 
-.. module:: mlip.simulation.utils
+.. module:: dipm.simulation.utils
 
 Create graph from ASE atoms
 ===========================

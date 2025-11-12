@@ -3,11 +3,11 @@
    but it should at least
    contain the root `toctree` directive.
 
-Welcome to the documentation of MLIP!
+Welcome to the documentation of DIPM!
 =====================================
 
-*mlip* is a Python library for **Machine Learning Interatomic Potentials (MLIP)**
-in JAX. It contains the following features:
+*dipm* is a enhancement of `MLIP <https://github.com/instadeepai/mlip>`_ standing
+for **Deep Interatomic Potentials Models (DIPM)**. It contains the following features:
 
 * Multiple model architectures (for now: MACE, NequIP and ViSNet)
 * Dataset preprocessing

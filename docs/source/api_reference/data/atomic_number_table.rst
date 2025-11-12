@@ -1,6 +1,6 @@
 .. _atomic_number_table:
 
-.. module:: mlip.data.helpers.atomic_number_table
+.. module:: dipm.data.helpers.atomic_number_table
 
 Atomic Number Table
 ===================

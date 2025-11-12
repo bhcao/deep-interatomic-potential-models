@@ -3,12 +3,12 @@
 NequIP
 ======
 
-.. module:: mlip.models.nequip.models
+.. module:: dipm.models.nequip.models
 
     .. autoclass:: Nequip
 
         .. automethod:: __call__
 
-.. module:: mlip.models.nequip.config
+.. module:: dipm.models.nequip.config
 
     .. autoclass:: NequipConfig

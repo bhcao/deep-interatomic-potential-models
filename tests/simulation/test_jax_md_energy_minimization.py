@@ -17,8 +17,8 @@ from copy import deepcopy
 import numpy as np
 import pytest
 
-from mlip.simulation.enums import SimulationType
-from mlip.simulation.jax_md.jax_md_simulation_engine import JaxMDSimulationEngine
+from dipm.simulation.enums import SimulationType
+from dipm.simulation.jax_md.jax_md_simulation_engine import JaxMDSimulationEngine
 
 
 @pytest.mark.parametrize("is_batched", [True, False])

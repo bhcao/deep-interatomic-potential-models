@@ -1,6 +1,6 @@
 .. _batched_inference:
 
-.. module:: mlip.inference.batched_inference
+.. module:: dipm.simulation.batched_inference
 
 Batched inference
 =================

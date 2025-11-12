@@ -1,6 +1,6 @@
 .. _simulation_engine:
 
-.. module:: mlip.simulation.simulation_engine
+.. module:: dipm.simulation.simulation_engine
 
 Simulation Engine: Interface
 ============================

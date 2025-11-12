@@ -20,9 +20,9 @@ import numpy as np
 import pytest
 from pydantic import ValidationError
 
-from mlip.simulation.configs.simulation_config import TemperatureScheduleConfig
-from mlip.simulation.enums import SimulationType, TemperatureScheduleMethod
-from mlip.simulation.jax_md.jax_md_simulation_engine import JaxMDSimulationEngine
+from dipm.simulation.configs import TemperatureScheduleConfig
+from dipm.simulation.enums import SimulationType, TemperatureScheduleMethod
+from dipm.simulation.jax_md.jax_md_simulation_engine import JaxMDSimulationEngine
 
 
 def test_md_can_be_run_with_jax_md_backend(setup_system_and_mace_model):

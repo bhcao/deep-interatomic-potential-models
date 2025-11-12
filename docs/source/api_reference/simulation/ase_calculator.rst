@@ -3,15 +3,15 @@
 MLIP ASE Calculator
 ===================
 
-.. module:: mlip.simulation.ase.mlip_ase_calculator
+.. module:: dipm.simulation.ase.ase_calculator
 
-    .. autoclass:: MLIPForceFieldASECalculator
+    .. autoclass:: ForceFieldASECalculator
 
             .. automethod:: __init__
 
             .. automethod:: calculate
 
 
-.. module:: mlip.utils.no_pbc_cell
+.. module:: dipm.utils.no_pbc_cell
 
     .. autofunction:: get_no_pbc_cell

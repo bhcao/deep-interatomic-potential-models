@@ -15,7 +15,7 @@
 import numpy as np
 from matscipy.neighbours import neighbour_list
 
-from mlip.utils.no_pbc_cell import get_no_pbc_cell
+from dipm.utils.no_pbc_cell import get_no_pbc_cell
 
 
 def test_no_pbc_cell_does_not_have_shifts(setup_system_and_mace_model) -> None:

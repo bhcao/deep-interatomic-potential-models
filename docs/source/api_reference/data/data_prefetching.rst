@@ -1,6 +1,6 @@
 .. _dataset_prefetching:
 
-.. module:: mlip.data.helpers.data_prefetching
+.. module:: dipm.data.helpers.data_prefetching
 
 Data parallelization and batch prefetching
 ==========================================

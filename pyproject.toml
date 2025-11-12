@@ -1,12 +1,13 @@
 [project]
-name = "mlip"
-version = "0.1.6"
-description = "Machine Learning Interatomic Potentials in JAX"
+name = "dipm"
+version = "0.0.3"
+description = "Deep Interatomic Potential Models in JAX"
 license-files = [
     "LICENSE"
 ]
 authors = [
-    {name="InstaDeep", email="placeholder@instadeep.com"},
+    {name = "Cao Bohan", email = "caobohan@mail.nankai.edu.cn"},
+    {name = "InstaDeep", email = "placeholder@instadeep.com"},
 ]
 readme = "README.md"
 classifiers = [
@@ -21,32 +22,41 @@ classifiers = [
     "License :: OSI Approved :: Apache Software License",
 ]
 
-requires-python = ">=3.11,<3.14"
+requires-python = ">=3.10,<3.14"
 
 dependencies = [
     "numpy >1.26.0,<3",
-    "ase >=3.22.1",
+    "jax >=0.4.32",
     "orbax-checkpoint ==0.5.2",
     "omegaconf >=2.3.0",
-    "dm-haiku >=0.0.14",
-    "dm-tree >=0.1.8",
     "e3nn-jax >=0.20.7",
     "flax >=0.9.0",
-    "jax-md >=0.2.26",
     "jraph",
     "orbax >=0.1.9",
-    "roundmantissa >=0.2.1",
     "matscipy >=1.1.0",
     "pydantic >=2.10.2",
     "h5py >=3.12.1",
     "tqdm >=4.0",
-    "tqdm-loggable >=0.2"
+    "tqdm-loggable >=0.2",
+    "safetensors >=0.5.0",
 ]
 
 [project.optional-dependencies]
 cuda = [
     "jax[cuda12] >=0.4.32",
     "jaxlib >=0.4.32"
+]
+cue = [
+    "cuequivariance >=0.6.0",
+    "cuequivariance-jax >=0.6.0",
+]
+md = [
+    "ase >=3.22.1",
+    "jax-md >=0.2.26",
+]
+md = [
+    "ase (>=3.22.0)",
+    "jax-md (>=0.2.8)",
 ]
 
 [dependency-groups]
@@ -70,4 +80,4 @@ profile = "black"
 include_namespace_packages = true
 
 [project.urls]
-"Homepage" = "https://github.com/instadeepai/mlip/"
+"Homepage" = "https://github.com/bhcao/deep-interatomic-potential-models/"

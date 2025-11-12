@@ -3,12 +3,12 @@
 ViSNet
 ======
 
-.. module:: mlip.models.visnet.models
+.. module:: dipm.models.visnet.models
 
     .. autoclass:: Visnet
 
         .. automethod:: __call__
 
-.. module:: mlip.models.visnet.config
+.. module:: dipm.models.visnet.config
 
     .. autoclass:: VisnetConfig

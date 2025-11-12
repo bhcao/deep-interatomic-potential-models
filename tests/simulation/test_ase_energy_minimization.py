@@ -14,9 +14,9 @@
 
 from copy import deepcopy
 
-from mlip.simulation.ase.ase_simulation_engine import ASESimulationEngine
-from mlip.simulation.enums import SimulationType
-from mlip.simulation.state import SimulationState
+from dipm.simulation.ase.ase_simulation_engine import ASESimulationEngine
+from dipm.simulation.enums import SimulationType
+from dipm.simulation.state import SimulationState
 
 
 def test_minimization_can_be_run_with_ase_backend(setup_system_and_mace_model) -> None:
