@@ -82,6 +82,7 @@ def _prepare_graphs(
     structures: list[ase.Atoms],
     allowed_atomic_numbers: set[int],
     cutoff_distance: float,
+    max_neighbors: int | None,
 ) -> list[jraph.GraphsTuple]:
     """Prepares graphs from list of `ase.Atoms` objects."""
     z_table = AtomicNumberTable(sorted(allowed_atomic_numbers))
@@ -91,12 +92,14 @@ def _prepare_graphs(
             atomic_numbers=atoms.numbers,
             atomic_species=np.asarray([z_table.z_to_index(z) for z in atoms.numbers]),
             positions=atoms.get_positions(),
+            cell=atoms.cell.array,
+            pbc=atoms.pbc,
         )
         for atoms in structures
     ]
 
     return [
-        create_graph_from_chemical_system(system, cutoff_distance)
+        create_graph_from_chemical_system(system, cutoff_distance, max_neighbors)
         for system in chemical_systems
     ]
 
@@ -130,6 +133,7 @@ def run_batched_inference(
     batch_size: int = 16,
     max_n_node: int | None = None,
     max_n_edge: int | None = None,
+    max_neighbors_per_atom: int | None = None,
 ) -> list[Prediction]:
     """Runs a batched inference on given structures.
 
@@ -157,6 +161,9 @@ def run_batched_inference(
                     edges, as the remaining ones are filled up with dummy edges.
                     The default is `None` which means an optimal number is automatically
                     computed for the dataset.
+        max_neighbors_per_atom: The maximum number of neighbors to include for each atom.
+                                The default is `None` which means that all neighbors within
+                                the cutoff distance are included.
     Returns:
         A list of predictions for each structure. These dataclasses will hold a float
         for energy, a numpy array for forces of shape `(num_atoms, 3)`, and optionally
@@ -169,7 +176,8 @@ def run_batched_inference(
         raise ValueError("Single atom systems are not supported yet.")
 
     graphs = _prepare_graphs(
-        structures, force_field.allowed_atomic_numbers, force_field.cutoff_distance
+        structures, force_field.allowed_atomic_numbers, force_field.cutoff_distance,
+        max_neighbors_per_atom
     )
     graph_dataset = _prepare_graph_dataset(graphs, batch_size, max_n_node, max_n_edge)
 

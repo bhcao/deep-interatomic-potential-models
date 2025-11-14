@@ -62,6 +62,9 @@ The `train` section contains the following parameters:
   in the second stage. This parameter specifies the portion of datasets used in each stage.
 * `energy_weights`: The scheduled energy weights in the two stage training.
 * `forces_weights`: The scheduled forces weights in the two stage training.
+* `tensorboard`: The path to the directory to save TensorBoard logs. If not provided, TensorBoard
+  logging is disabled.
+* `wandb`: The project name for Weights and Biases. If not provided, W&B logging is disabled.
 * Train loop specific parameters: See
   :py:class:`TrainingLoopConfig <dipm.training.configs.TrainingLoopConfig>` for details.
 * Optimizer specific parameters: See
@@ -97,6 +100,7 @@ Here is an example of a `scripts/train.yaml` file:
     train:
       num_epochs: 10                        # Defined in TrainingLoopConfig
       final_learning_rate: 1e-4             # Defined in OptimizerConfig
+      dtype: bfloat16                       # Computation dtype in mixed precision training
       loss: MSELoss                         # Loss class name in dipm.loss
       local_model_output_dir: ./checkpoints # Defined in TrainingIOHandlerConfig
       restore_checkpoint_if_exists: true    # Defined in TrainingIOHandlerConfig
@@ -105,6 +109,8 @@ Here is an example of a `scripts/train.yaml` file:
       stage_splits: [0.7, 0.3]              # Two stage training
       energy_weights: [1.0, 25.0]           # Schedule for energy weight in stage 1 and 2
       forces_weights: [25.0, 1.0]           # Schedule for forces weight in stage 1 and 2
+      tensorboard: ./runs/equiformerv2      # Log directory for TensorBoard
+      wandb: equiformerv2_train             # Project name for Weights and Biases
 
 Advanced
 --------

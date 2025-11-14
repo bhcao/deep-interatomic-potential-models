@@ -1,16 +1,16 @@
 # Copyright 2025 Cao Bohan
 #
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
+# DIPM is free software: you can redistribute it and/or modify it under the terms
+# of the GNU Lesser General Public License as published by the Free Software
+# Foundation, either version 3 of the License, or (at your option) any later
+# version.
 #
-#      http://www.apache.org/licenses/LICENSE-2.0
+# DIPM is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
+# PARTICULAR PURPOSE. See the GNU Lesser General Public License for more details.
 #
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+# You should have received a copy of the GNU Lesser General Public License along
+# with this program. If not, see <https://www.gnu.org/licenses/>.
 
 import argparse
 import logging
@@ -25,12 +25,19 @@ from dipm.data import GraphDatasetBuilder, DatasetInfo, ChemicalDatasetsConfig, 
 import dipm.models
 from dipm.models import ForceFieldPredictor
 import dipm.loss
-from dipm.training import get_default_mlip_optimizer, OptimizerConfig
-from dipm.training.training_loggers import log_metrics_to_line
+from dipm.training import (
+    get_default_mlip_optimizer,
+    OptimizerConfig,
+    LineLogger,
+    TensorBoardLogger,
+    WandbLogger,
+    TrainingLoop,
+)
 from dipm.training.training_io_handler import TrainingIOHandler
-from dipm.training import TrainingLoop
 from dipm.utils.model_io import save_model
 from dipm.typing import get_dtype
+
+logger = logging.getLogger("dipm")
 
 
 def create_config(model: type[pydantic.BaseModel], config: dict):
@@ -43,39 +50,33 @@ def main(args):
     with open(args.config_file, encoding="utf-8") as f:
         config = yaml.load(f, Loader=yaml.FullLoader)
 
-    logging.info("Loading dataset...")
+    logger.info("Loading dataset...")
     builder_config = create_config(GraphDatasetBuilder.Config, config["dataset"])
 
     # Load dataset info from file to skip computation
+    dataset_info = None
     if config["dataset"].get("info_file") is not None:
         try:
             with open(config["dataset"]["info_file"], "r", encoding="utf-8") as f:
                 dataset_info = create_config(DatasetInfo, json.load(f))
-            if builder_config.atomic_energies_map is None:
-                builder_config.atomic_energies_map = dataset_info.atomic_energies_map
-            if builder_config.avg_num_neighbors is None:
-                builder_config.avg_num_neighbors = dataset_info.avg_num_neighbors
-            if builder_config.avg_num_nodes is None:
-                builder_config.avg_num_nodes = dataset_info.avg_num_nodes
-            if builder_config.avg_r_min_angstrom is None:
-                builder_config.avg_r_min_angstrom = dataset_info.avg_r_min_angstrom
         except FileNotFoundError:
-            logging.warning("Dataset info file %s not found.", config['dataset']['info_file'])
+            logger.warning("Dataset info file %s not found.", config['dataset']['info_file'])
 
     reader_config = create_config(ChemicalDatasetsConfig, config["dataset"])
     builder = GraphDatasetBuilder(
         create_datasets(reader_config),
-        builder_config
+        builder_config,
+        dataset_info,
     )
     # Compute all dataset information. If not called, you will get a warning.
     builder.prepare_datasets()
-    logging.info("Dataset loaded.")
+    logger.info("Dataset loaded.")
 
     should_parallelize = jax.device_count() > 1
     if config["train"].get("parallel", None) is not None:
         should_parallelize = config["train"]["parallel"]
     elif should_parallelize:
-        logging.info("Multiple devices detected, using parallel training. Set `parallel: false`"
+        logger.info("Multiple devices detected, using parallel training. Set `parallel: false`"
                      " to disable.")
 
     if should_parallelize:
@@ -92,10 +93,10 @@ def main(args):
         create_config(model_class.Config, config["model"]),
         builder.dataset_info,
         dtype=get_dtype(config["train"].get("dtype", None)),
-        rngs=nnx.Rngs(config["model"]["seed"]),
+        rngs=nnx.Rngs(config["model"].get("seed", 42)),
     )
     # This seed is for save_model()
-    force_field = ForceFieldPredictor(force_model, seed=config["model"]["seed"])
+    force_field = ForceFieldPredictor(force_model)
 
     optimizer = get_default_mlip_optimizer(
         create_config(OptimizerConfig, config["train"])
@@ -123,7 +124,11 @@ def main(args):
     io_handler = TrainingIOHandler(
         create_config(TrainingIOHandler.Config, config["train"]),
     )
-    io_handler.attach_logger(log_metrics_to_line)
+    io_handler.attach_logger(LineLogger(logger))
+    if config["train"].get("tensorboard", None) is not None:
+        io_handler.attach_logger(TensorBoardLogger(config["train"]["tensorboard"]))
+    if config["train"].get("wandb", None) is not None:
+        io_handler.attach_logger(WandbLogger(config["train"]["wandb"]))
 
     training_loop = TrainingLoop(
         io_handler=io_handler,
@@ -153,6 +158,6 @@ if __name__ == "__main__":
     logging.basicConfig(
         level=logging.INFO, force=True, format='%(levelname)s (%(name)s): %(message)s'
     )
-    logging.getLogger("dipm").setLevel(logging.INFO)
+    logger.setLevel(logging.INFO)
 
     main(args)

@@ -227,7 +227,7 @@ varying sizes. See example code below:
 .. code-block:: python
 
     from ase.io import read as ase_read
-    from mlip.simulation.jax_md import JaxMDSimulationEngine
+    from dipm.simulation.jax_md import JaxMDSimulationEngine
 
     systems = []
     for path in ["/path/to/mol_1", "/path/to/mol_2", "/path/to/mol_3"]:

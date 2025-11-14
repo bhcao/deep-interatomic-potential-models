@@ -25,6 +25,7 @@ from dipm.typing.graph_definition import GraphEdges, GraphGlobals, GraphNodes
 def create_graph_from_chemical_system(
     chemical_system: ChemicalSystem,
     distance_cutoff_angstrom: float,
+    max_neighbors_per_atom: int | None = None,
     batch_it_with_minimal_dummy: bool = False,
 ) -> jraph.GraphsTuple:
     """Creates a jraph.GraphsTuple object from a chemical system object.
@@ -35,6 +36,8 @@ def create_graph_from_chemical_system(
     Args:
         chemical_system: The chemical system object.
         distance_cutoff_angstrom: The graph distance cutoff in Angstrom.
+        max_neighbors_per_atom: The maximum number of neighbors to consider for each atom.
+                                If None, all neighbors within the cutoff will be considered.
         batch_it_with_minimal_dummy: Batch the dummy together with a minimal dummy
                                      graph of size 1 node and 1 edge. Needed if you
                                      want to run a model inference on just this single
@@ -46,6 +49,7 @@ def create_graph_from_chemical_system(
     senders, receivers, shift_vectors = get_neighborhood(
         positions=chemical_system.positions,
         cutoff=distance_cutoff_angstrom,
+        max_neighbors=max_neighbors_per_atom,
         pbc=chemical_system.pbc,
         cell=chemical_system.cell,
     )

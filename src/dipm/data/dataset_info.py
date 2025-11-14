@@ -83,10 +83,6 @@ def compute_dataset_info_from_graphs(
     graphs: list[jraph.GraphsTuple],
     cutoff_distance_angstrom: float,
     z_table: AtomicNumberTable,
-    atomic_energies_map: dict[int, float] | None = None,
-    avg_num_neighbors: float | None = None,
-    avg_num_nodes: float | None = None,
-    avg_r_min_angstrom: float | None = None,
 ) -> DatasetInfo:
     """Computes the dataset info from graphs, typically training set graphs.
 
@@ -96,14 +92,6 @@ def compute_dataset_info_from_graphs(
                                   store in the dataset info.
         z_table: The atomic numbers table needed to produce the correct atomic energies
                  map keys.
-        atomic_energies_map: The optionally pre-computed atomic energies map. If
-                             provided, we skip recomputing this.
-        avg_num_neighbors: The optionally pre-computed average number of neighbors. If
-                           provided, we skip recomputing this.
-        avg_num_nodes: The optionally pre-computed average number of nodes per graph. If
-                       provided, we skip recomputing this.
-        avg_r_min_angstrom: The optionally pre-computed average miminum radius. If
-                            provided, we skip recomputing this.
 
 
     Returns:
@@ -113,25 +101,25 @@ def compute_dataset_info_from_graphs(
     logger.info(
         "Starting to compute mandatory dataset statistics: this may take some time..."
     )
-    if avg_num_neighbors is None:
-        logger.debug("Computing average number of neighbors...")
-        avg_num_neighbors = compute_avg_num_neighbors(graphs)
-        logger.debug("Average number of neighbors: %.1f", avg_num_neighbors)
-    if avg_num_nodes is None:
-        logger.debug("Computing average number of nodes...")
-        avg_num_nodes = np.mean([i.item() for g in graphs for i in g.n_node])
-        logger.debug("Average number of nodes: %.1f", avg_num_nodes)
-    if avg_r_min_angstrom is None:
-        logger.debug("Computing average min neighbor distance...")
-        avg_r_min_angstrom = compute_avg_min_neighbor_distance(graphs)
-        logger.debug("Average min. node distance (Angstrom): %.1f", avg_r_min_angstrom)
-    if atomic_energies_map is None:
-        logger.debug("Computing average atomic energies...")
-        atomic_energies_map = {
-            z_table.index_to_z(idx): energy
-            for idx, energy in compute_average_e0s_from_graphs(graphs).items()
-        }
-        logger.debug("Average atomic energies: %s", atomic_energies_map)
+    
+    logger.debug("Computing average number of neighbors...")
+    avg_num_neighbors = compute_avg_num_neighbors(graphs)
+    logger.debug("Average number of neighbors: %.1f", avg_num_neighbors)
+
+    logger.debug("Computing average number of nodes...")
+    avg_num_nodes = np.mean([i.item() for g in graphs for i in g.n_node])
+    logger.debug("Average number of nodes: %.1f", avg_num_nodes)
+
+    logger.debug("Computing average min neighbor distance...")
+    avg_r_min_angstrom = compute_avg_min_neighbor_distance(graphs)
+    logger.debug("Average min. node distance (Angstrom): %.1f", avg_r_min_angstrom)
+
+    logger.debug("Computing average atomic energies...")
+    atomic_energies_map = {
+        z_table.index_to_z(idx): energy
+        for idx, energy in compute_average_e0s_from_graphs(graphs).items()
+    }
+    logger.debug("Average atomic energies: %s", atomic_energies_map)
 
     logger.debug(
         "Computation of average atomic energies"

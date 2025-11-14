@@ -1,5 +1,14 @@
 # Changelog
 
+## Release 0.0.4
+
+- Rebasing dipm on mlip-v0.1.6 to fix bugs (such as incorrect distance on periodic
+  systems) and add new features.
+- Adding support for EquiformerV2 model file conversion.
+- Adding TensorBoard and WandB loggers for training.
+- Fixing typos and incorect wigner-d matrix / euler angles.
+- Changing LICENSE to LGPL-3.0-or-later.
+
 ## Release 0.0.3
 
 - Adding support for mixed precision training
@@ -24,7 +33,6 @@
 - Migrating from flax.linen to flax.nnx
 - Renaming function or class: MlipNetwork -> ForceModel, parse_activation -> 
   get_activation_fn, RadialEmbeddingBlock -> RadialEmbeddingLayer, etc.
-- Deleting ASE simulation backend
 - Deleting `swish` activation (equal to `silu`)
 - Changing the model file format from `.zip` to `.safetensors`
 

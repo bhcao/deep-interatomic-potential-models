@@ -157,8 +157,6 @@ class GraphDatasetBuilder:
                 train_graph_dataset.graphs,
                 self._config.graph_cutoff_angstrom,
                 z_table,
-                self._config.avg_num_neighbors,
-                self._config.avg_r_min_angstrom,
             )
 
         self._datasets = {
@@ -272,7 +270,7 @@ class GraphDatasetBuilder:
             else:
                 graphs = [
                     create_graph_from_chemical_system(
-                        system, _cfg.graph_cutoff_angstrom
+                        system, _cfg.graph_cutoff_angstrom, _cfg.max_neighbors_per_atom
                     )
                     for system in tqdm(systems, desc=f"{key} graph creation")
                 ]
@@ -363,7 +361,7 @@ class GraphDatasetBuilder:
             train_graphs, num_discarded_graphs = [], 0
             for system in tqdm(train_systems, desc="Graph creation"):
                 graph = create_graph_from_chemical_system(
-                    system, _cfg.graph_cutoff_angstrom
+                    system, _cfg.graph_cutoff_angstrom, _cfg.max_neighbors_per_atom
                 )
                 if graph.n_edge.sum() == 0:
                     num_discarded_graphs += 1

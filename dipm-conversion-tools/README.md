@@ -56,10 +56,9 @@ Explanation of options:
 | Option | Description |
 | --- | --- |
 | `--ref_energy_path` | Path to the reference energies file for OC20 dataset. See OC22 website for details. |
-| `--split_file` | Whether to split every file in the dataset into multiple smaller files and save them in the subdirectory with the same name as the original file. Cannot be used with `--merge_dir`. |
-| `--split_size` | Approximate size of each split file. The original file will be split into `total_size / split_size` files. Default is 512 MB. |
-| `--merge_dir` | Whether to merge multiple dataset files into one, cannot be used with `--split_file`. |
-| `--merge_size` | Approximate total size of the merged file. Default is to merge all files of every subdirectory into one file. |
+| `--split` | Whether to split every file in the dataset into multiple smaller files and save them in the subdirectory with the same name as the original file. Cannot be used with `--merge`. |
+| `--size` | Approximate size the resulting file. When `--split` is specified, the original file will be split into `total_size / size` files and default is 512 MB. When `--merge` is specified, default is to merge all files of every subdirectory into one file. |
+| `--merge` | Whether to merge multiple dataset files into one, cannot be used with `--split`. |
 | `--download_dir` | The original downloaded dataset file will be removed after conversion. If you want to keep it, specify `--download_dir` to the directory you want to save it. |
 | `--energy_unit` | Energy unit of the dataset. Default is `eV`. |
 | `--distance_unit` | Distance unit of the dataset. Default is `Angstrom`. |

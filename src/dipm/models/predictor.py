@@ -47,15 +47,12 @@ class ForceFieldPredictor(nnx.Module):
         force_model: The MLIP network to use in this force field.
         predict_stress: Whether to predict stress properties. If false, only energies
                         and forces are computed.
-        seed: The initialization seed for the parameters. Please keep same with rng.Rngs(seed).
-              Default is 42.
     """
 
     def __init__(
         self,
         force_model: ForceModel,
         predict_stress: bool = False,
-        seed: int = 42,
     ):
         """Only the `cutoff_distance` and `allowed_atomic_numbers` properties are subject
         to duck-typing in the simulation engine. Users are therefore free to provide
@@ -63,7 +60,6 @@ class ForceFieldPredictor(nnx.Module):
         """
         self.force_model = force_model
         self.predict_stress = predict_stress
-        self.seed = seed
         if isinstance(self.force_model, PrecallInterface):
             self.force_model.init_precall_key()
 
@@ -89,6 +85,7 @@ class ForceFieldPredictor(nnx.Module):
                 "Graph must be batched with at least one dummy graph. "
                 "See models tutorial in documentation for details."
             )
+
         def cast_jraph(x: jax.Array):
             if jnp.issubdtype(x.dtype, jnp.floating):
                 return x.astype(self.force_model.dtype)
@@ -99,11 +96,11 @@ class ForceFieldPredictor(nnx.Module):
         strains = jnp.zeros_like(graph.globals.cell)
         if self.force_model.predict_forces:
             if self.predict_stress:
-                pseudo_stress, (prediction, minus_forces) = nnx.grad(
+                pseudo_stress, prediction = nnx.grad(
                     self._compute_energy_and_forces, argnums=1, has_aux=True
                 )(graph.nodes.positions, strains, graph, rngs, ctx)
             else:
-                prediction, minus_forces = self._compute_energy_and_forces( # pylint: disable=W0632
+                _, prediction = self._compute_energy_and_forces(
                     graph.nodes.positions, strains, graph, rngs, ctx
                 )
         else:
@@ -115,8 +112,7 @@ class ForceFieldPredictor(nnx.Module):
                 minus_forces, prediction = nnx.grad(
                     self._compute_energy_and_forces, argnums=0, has_aux=True
                 )(graph.nodes.positions, strains, graph, rngs, ctx)
-
-        prediction = prediction.replace(forces=-minus_forces)
+            prediction = prediction.replace(forces=-minus_forces)
 
         if not self.predict_stress:
             return prediction
@@ -127,24 +123,6 @@ class ForceFieldPredictor(nnx.Module):
             stress=stress_results.stress,
             pressure=stress_results.pressure,
         )
-
-    def _compute_gradients(
-        self, graph: jraph.GraphsTuple, rngs: nnx.Rngs | None, ctx: dict | None
-    ) -> tuple[Prediction, np.ndarray, np.ndarray]:
-        """Return a `(prediction, gradients, pseudo_stress)` triple.
-
-        The `prediction` holds graph energies, and eventual optional fields.
-        Dynamical forces (forces and stress) are populated later after
-        the raw gradients have been processed.
-        """
-        # Note: strains are invariant vector fields tangent to cell
-        strains = jnp.zeros_like(graph.globals.cell)
-        # Differentiate wrt positions and strains (not cell)
-        (gradients, pseudo_stress), prediction = nnx.grad(
-            self._compute_energy, (0, 1), has_aux=True
-        )(graph.nodes.positions, strains, graph, rngs, ctx)
-
-        return prediction, gradients, pseudo_stress
 
     @staticmethod
     def _compute_stress_results(
@@ -184,7 +162,17 @@ class ForceFieldPredictor(nnx.Module):
         differentiation. The `Prediction` object holds graph-wise energies at this
         stage, and may be further populated by downstream methods.
         """
-        node_energies = self._compute_node_features(positions, strains, graph, rngs, ctx)
+        node_features = self._compute_node_features(positions, strains, graph, rngs, ctx)
+        padding_mask = jraph.get_node_padding_mask(graph)
+
+        if self.force_model.predict_forces:
+            node_energies, forces = node_features
+            forces = forces * padding_mask[:, None]
+        else:
+            node_energies = node_features
+            forces = None
+
+        node_energies = node_energies * padding_mask
 
         assert node_energies.shape == (len(positions),), (
             f"model output needs to be an array of shape "
@@ -199,6 +187,7 @@ class ForceFieldPredictor(nnx.Module):
 
         prediction = Prediction(
             energy=graph_energies,
+            forces=forces,
         )
 
         return total_energy, prediction
@@ -257,16 +246,15 @@ class ForceFieldPredictor(nnx.Module):
                     dataset=dataset,
                     rngs=rngs,
                 )
-            node_energies = self.force_model(
+            node_features = self.force_model(
                 vectors, graph.nodes.species, graph.senders, graph.receivers, graph.n_node,
                 rngs, ctx=ctx
             )
         else:
-            node_energies = self.force_model(
+            node_features = self.force_model(
                 vectors, graph.nodes.species, graph.senders, graph.receivers, graph.n_node, rngs
             )  # [n_nodes, ]
-        node_energies = node_energies * jraph.get_node_padding_mask(graph)
-        return node_energies
+        return node_features
 
     def _apply_strains(
         self, positions: np.ndarray, strains: np.ndarray, graph: jraph.GraphsTuple

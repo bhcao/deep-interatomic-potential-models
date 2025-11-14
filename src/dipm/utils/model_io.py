@@ -1,16 +1,16 @@
 # Copyright 2025 Cao Bohan
 #
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
+# DIPM is free software: you can redistribute it and/or modify it under the terms
+# of the GNU Lesser General Public License as published by the Free Software
+# Foundation, either version 3 of the License, or (at your option) any later
+# version.
 #
-#      http://www.apache.org/licenses/LICENSE-2.0
+# DIPM is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
+# PARTICULAR PURPOSE. See the GNU Lesser General Public License for more details.
 #
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+# You should have received a copy of the GNU Lesser General Public License along
+# with this program. If not, see <https://www.gnu.org/licenses/>.
 
 import json
 import os
@@ -46,7 +46,6 @@ def save_model(
         "dataset_info": model.dataset_info.model_dump_json(),
         "config": model.config.model_dump_json(),
         "predict_stress": 'true' if model.predict_stress else 'false', # for json to load
-        "seed": str(model.seed)
     }
 
     # Add model type to hyperparams if model is known
@@ -78,6 +77,7 @@ def load_model(
     model_type: Type[nnx.Module] | None = None,
     dtype: Dtype | None = None,
     drop_force_head: bool = True,
+    strict: bool = True,
 ) -> ForceFieldPredictor:
     """Loads a model from a safetensors file and returns it wrapped as a `ForceFieldPredictor`.
 
@@ -91,6 +91,7 @@ def load_model(
         drop_force_head (optional): If Ture, the head of the forces will be dropped if it exists
             in the saved model. Default is ``True`` because it is not recommended to use the head
             of the forces in inferece.
+        strict (optional): If True, raises an error if the parameters name and shape are mismatched.
 
     Returns:
         The loaded model wrapped
@@ -131,15 +132,31 @@ def load_model(
         model_config.force_head = False
         logger.info("Forces head has been dropped from the loaded model.")
 
-    params = unflatten_mapping({_key2tuple(k): v for k, v in params_raw})
+    params_raw = {_key2tuple(k): v for k, v in params_raw.items()}
+    params = unflatten_mapping(params_raw)
 
-    # Config(**hyperparams_raw["config"]) will be called by ForceModel.__init__
     model = model_type(
         config=model_config,
         dataset_info=DatasetInfo(**hyperparams_raw["dataset_info"]),
         dtype=dtype,
-        rngs=nnx.Rngs(hyperparams_raw["seed"])
     )
+
+    state_dict = dict(nnx.to_flat_state(nnx.state(model, [nnx.Param, nnx.BatchStat])))
+    if strict:
+        for k, v in state_dict.items():
+            if k not in params_raw:
+                raise ValueError(f"Parameter {k} is missing from the saved file.")
+            if v.shape != params_raw[k].shape:
+                raise ValueError(f"Shape of parameter {k} is mismatched. Expected {v.shape}, "
+                                 f"got {params_raw[k].shape}.")
+        for k in params_raw:
+            if k not in state_dict:
+                raise ValueError(f"Extra parameter {k} is present in the saved file.")
+    else:
+        # remove extra or it will cause error when loading
+        for k in list(params_raw.keys()):
+            if k not in state_dict:
+                del params_raw[k]
 
     # load parameters
     graphdef, state = nnx.split(model)
@@ -147,6 +164,4 @@ def load_model(
     model = nnx.merge(graphdef, state)
 
     # `seed` is store only for next load
-    return ForceFieldPredictor(
-        model, hyperparams_raw["predict_stress"], seed=hyperparams_raw["seed"]
-    )
+    return ForceFieldPredictor(model, hyperparams_raw["predict_stress"])

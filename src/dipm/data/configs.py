@@ -153,6 +153,9 @@ class GraphDatasetBuilderConfig(pydantic.BaseModel):
                     edges, as the remaining ones are filled up with dummy edges.
                     If set to `None`, a reasonable value will be automatically
                     computed. Default is `None`.
+        max_neighbors_per_atom: The maximum number of neighbors to consider for each atom.
+                                If None, all neighbors within the cutoff will be considered.
+                                Default is `None`.
         batch_size: The number of graphs in a batch. Will be filled up with dummy graphs
                     if either the maximum number of nodes or edges are reached before
                     the number of graphs is reached. Default is 16.
@@ -165,21 +168,15 @@ class GraphDatasetBuilderConfig(pydantic.BaseModel):
                                 Default is ``False``. Make sure that if you set this
                                 to ``True``, the models assume ``"zero"`` atomic
                                 energies as can be set in the model hyperparameters.
-        avg_num_neighbors: The pre-computed average number of neighbors.
-        avg_num_nodes: The pre-computed average number of nodes per graph.
-        avg_r_min_angstrom: The pre-computed average minimum distance between nodes.
-
     """
 
     graph_cutoff_angstrom: PositiveFloat = 5.0
     max_n_node: PositiveInt | None = None
     max_n_edge: PositiveInt | None = None
+    max_neighbors_per_atom: PositiveInt | None = None
     batch_size: PositiveInt = 16
 
     num_batch_prefetch: PositiveInt = 1
     batch_prefetch_num_devices: PositiveInt = 1
 
     use_formation_energies: bool = False
-    avg_num_neighbors: float | None = None
-    avg_num_nodes: float | None = None
-    avg_r_min_angstrom: float | None = None

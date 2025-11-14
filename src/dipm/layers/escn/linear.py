@@ -1,16 +1,16 @@
 # Copyright 2025 Cao Bohan
 #
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
+# DIPM is free software: you can redistribute it and/or modify it under the terms
+# of the GNU Lesser General Public License as published by the Free Software
+# Foundation, either version 3 of the License, or (at your option) any later
+# version.
 #
-#      http://www.apache.org/licenses/LICENSE-2.0
+# DIPM is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
+# PARTICULAR PURPOSE. See the GNU Lesser General Public License for more details.
 #
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+# You should have received a copy of the GNU Lesser General Public License along
+# with this program. If not, see <https://www.gnu.org/licenses/>.
 
 from flax import nnx
 from flax.typing import Dtype, Initializer
@@ -36,7 +36,7 @@ class SO3LinearV2(nnx.Module):
         rngs: nnx.Rngs,
     ):
         key = rngs.params()
-        self.weight = nnx.Param(
+        self.kernel = nnx.Param(
             kernel_init(
                 key, ((lmax + 1), in_features, out_features), param_dtype
             )
@@ -52,11 +52,11 @@ class SO3LinearV2(nnx.Module):
         self.dtype = dtype
 
     def __call__(self, embedding: jax.Array):
-        weight, bias, embedding = dtypes.promote_dtype(
-            (self.weight.value, self.bias.value, embedding), dtype=self.dtype
+        kernel, bias, embedding = dtypes.promote_dtype(
+            (self.kernel.value, self.bias.value, embedding), dtype=self.dtype
         )
 
-        weight_expanded = weight[self.expand_index.value] # [(L_max + 1) ** 2, C_in, C_out]
+        weight_expanded = kernel[self.expand_index.value] # [(L_max + 1) ** 2, C_in, C_out]
         out = jnp.einsum(
             "bmi, mio -> bmo", embedding, weight_expanded
         )  # [N, (L_max + 1) ** 2, C_out]

@@ -18,7 +18,7 @@ import importlib
 import logging
 import types
 
-logger = logging.getLogger('dipm-cvt-cli')
+logger = logging.getLogger('dipm')
 
 
 class LazyLoader(types.ModuleType):

@@ -60,11 +60,11 @@ For example, to create a force field that uses MACE, one can simply execute:
 
     # with default config
     mace = Mace(Mace.Config(), dataset_info, rngs=nnx.Rngs(0))
-    force_field = ForceFieldPredictor(mace, seed=0)
+    force_field = ForceFieldPredictor(mace)
 
     # with modified config
     mace = Mace(Mace.Config(num_channels=64), dataset_info, rngs=nnx.Rngs(0))
-    force_field = ForceFieldPredictor(mace, seed=0)
+    force_field = ForceFieldPredictor(mace)
 
 Unlike `MLIP <https://github.com/instadeepai/mlip>`_, we use `flax.nnx` as our backend.
 It's a pytorch-like api without the need to seperate parameters from the model.

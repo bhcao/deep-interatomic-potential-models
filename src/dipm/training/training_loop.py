@@ -31,9 +31,11 @@ from dipm.data.helpers.graph_dataset import GraphDataset
 from dipm.models import ForceFieldPredictor
 from dipm.loss import Loss
 from dipm.training.optimizer import EMATracker
-from dipm.training.evaluation import make_evaluation_step, run_evaluation
+from dipm.training.evaluation import (
+    make_evaluation_step, run_evaluation, convert_mse_to_rmse_in_logs
+)
 from dipm.training.training_io_handler import LogCategory, TrainingIOHandler
-from dipm.training.training_loggers import log_metrics_to_line
+from dipm.training.loggers.command_line import LineLogger
 from dipm.training.configs import TrainingLoopConfig
 from dipm.training.training_step import TrainingState, TrainingStateVar, make_train_step
 
@@ -68,7 +70,6 @@ class _TrainingLog:
         metrics = {}
         for metric_name in self.metrics[0].keys():
             metrics[metric_name] = np.mean([m[metric_name] for m in self.metrics])
-        metrics["steps_in_total"] = num_steps
         metrics["seconds_per_step"] = time_per_step
         # Update
         self.last_log_step = num_steps
@@ -141,7 +142,7 @@ class TrainingLoop:
         self.io_handler = io_handler
         if self.io_handler is None:
             self.io_handler = TrainingIOHandler()
-            self.io_handler.attach_logger(log_metrics_to_line)
+            self.io_handler.attach_logger(LineLogger(logger))
 
         self.io_handler.save_dataset_info(self.force_field.dataset_info)
 
@@ -197,11 +198,18 @@ class TrainingLoop:
             "Training loop: Steps per epoch has been set to: %s", self.steps_per_epoch
         )
 
-    def run(self) -> None:
+    def run(self, rngs: nnx.Rngs | None = None) -> None:
         """Runs the training loop.
 
         The final training state can be accessed via its member variable.
+
+        Args:
+            rngs: The random number generators for training. Only used if the model contains
+                  dropout or other stochastic layers. Default to `nnx.Rngs(42)`.
         """
+        if rngs is None:
+            rngs = nnx.Rngs(42)
+
         logger.info("Starting training loop...")
 
         # May not be zero if restored from checkpoint
@@ -218,14 +226,12 @@ class TrainingLoop:
                 "Initial evaluation done in %.2f sec.", time.perf_counter() - start_time
             )
 
-        train_rngs = nnx.Rngs(42)
-
         log = _TrainingLog(self._get_num_steps_from_training_state())
         while self.epoch_number < self.config.num_epochs:
             self.epoch_number += 1
             self.io_handler.log(LogCategory.EPOCH_START, {}, self.epoch_number)
             t_before_train = time.perf_counter()
-            self._run_training_epoch(train_rngs, log)
+            self._run_training_epoch(rngs, log)
             logger.debug(
                 "Parameter updates of epoch %s done, running evaluation next.",
                 self.epoch_number,
@@ -259,7 +265,7 @@ class TrainingLoop:
             num_steps = self._get_num_steps_from_training_state()
             if num_steps % self.config.log_per_steps == 0:
                 metrics = log.get(num_steps)
-                self._log_after_training_steps(metrics, self.epoch_number)
+                self._log_after_training_steps(metrics, self.epoch_number, num_steps)
 
     def _run_evaluation(self) -> None:
         devices = jax.devices() if self.should_parallelize else None
@@ -402,6 +408,7 @@ class TrainingLoop:
         self,
         metrics: dict[str, np.ndarray],
         epoch_number: int,
+        num_steps: int,
     ) -> None:
         try:
             if self.extended_metrics:
@@ -415,8 +422,8 @@ class TrainingLoop:
             pass
 
         # TODO(bhcao): Add more extended_metrics
-
-        self.io_handler.log(LogCategory.TRAIN_METRICS, metrics, epoch_number)
+        metrics = convert_mse_to_rmse_in_logs(metrics)
+        self.io_handler.log(LogCategory.TRAIN_METRICS, metrics, epoch_number, num_steps)
 
         logger.debug(
             "Total number of steps after epoch %s: %s",

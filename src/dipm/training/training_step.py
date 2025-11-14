@@ -92,7 +92,7 @@ def _training_step(
     grad_fun = nnx.grad(model_loss_fun, argnums=0, has_aux=True)
     grads, aux_info = grad_fun(predictor, graph, rngs, epoch_number)
 
-    # Aggregrate over devices.
+    # Aggregate over devices.
     if should_parallelize:
         grads = jax.lax.pmean(grads, axis_name="device")
 

@@ -1,16 +1,16 @@
 # Copyright 2025 Cao Bohan
 #
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
+# DIPM is free software: you can redistribute it and/or modify it under the terms
+# of the GNU Lesser General Public License as published by the Free Software
+# Foundation, either version 3 of the License, or (at your option) any later
+# version.
 #
-#      http://www.apache.org/licenses/LICENSE-2.0
+# DIPM is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
+# PARTICULAR PURPOSE. See the GNU Lesser General Public License for more details.
 #
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+# You should have received a copy of the GNU Lesser General Public License along
+# with this program. If not, see <https://www.gnu.org/licenses/>.
 
 import argparse
 import logging
@@ -20,6 +20,10 @@ from tqdm import tqdm
 from dipm_cvt.cli.dataset_convert import (
     add_dataset_convert_args,
     run_dataset_convert,
+)
+from dipm_cvt.cli.model_convert import (
+    add_model_convert_args,
+    run_model_convert,
 )
 
 DESCRIPTION = '''
@@ -56,8 +60,21 @@ def get_argparser():
         action="store_true",
         help="Whether to convert model checkpoint",
     )
+    existing_group = parser.add_mutually_exclusive_group()
+    existing_group.add_argument(
+        "--overwrite_existing",
+        action="store_true",
+        help="Whether to overwrite existing converted files",
+    )
+    existing_group.add_argument(
+        "--ignore_existing",
+        action="store_true",
+        help="Whether to ignore existing converted files",
+    )
     dataset_group = parser.add_argument_group('dataset conversion options')
     add_dataset_convert_args(dataset_group)
+    model_group = parser.add_argument_group('model conversion options')
+    add_model_convert_args(model_group)
     return parser
 
 
@@ -99,6 +116,8 @@ def main():
 
     if args.convert_dataset:
         run_dataset_convert(args)
+    elif args.convert_model:
+        run_model_convert(args)
 
 if __name__ == '__main__':
     main()

@@ -1,16 +1,16 @@
 # Copyright 2025 Cao Bohan
 #
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
+# DIPM is free software: you can redistribute it and/or modify it under the terms
+# of the GNU Lesser General Public License as published by the Free Software
+# Foundation, either version 3 of the License, or (at your option) any later
+# version.
 #
-#      http://www.apache.org/licenses/LICENSE-2.0
+# DIPM is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
+# PARTICULAR PURPOSE. See the GNU Lesser General Public License for more details.
 #
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+# You should have received a copy of the GNU Lesser General Public License along
+# with this program. If not, see <https://www.gnu.org/licenses/>.
 
 import logging
 import math
@@ -85,8 +85,11 @@ def get_single_map(input_path, output_path, args, add_suffix=False):
         add_suffix: Use parent directory name and add suffix.
     """
 
-    split_size = args.split_size * 1024 * 1024 # convert to bytes
-    if args.split_file:
+    if args.split:
+        if args.size is None:
+            args.size = 512 # default to 512 MB
+        split_size = args.size * 1024 * 1024 # convert to bytes
+
         if output_path.is_file():
             logger.critical("Output path %s already exists.", output_path)
         output_path.mkdir(exist_ok=True, parents=True)
@@ -130,7 +133,7 @@ def get_file_map(root, new_root, files, args):
     orig_files.sort()
 
     # Not merge files
-    if not args.merge_dir or len(orig_files) <= 1:
+    if not args.merge or len(orig_files) <= 1:
         for file in orig_files:
             out_map = get_single_map(file, new_root / file.stem, args, add_suffix=True)
             if out_map is not None:
@@ -138,14 +141,14 @@ def get_file_map(root, new_root, files, args):
         return
 
     # Unlimited merge size
-    if args.merge_size is None:
+    if args.size is None:
         new_path = new_root / "data-0000.h5"
         if _ignore_new_path(new_path, args):
             return
         yield (orig_files, [new_path])
         return
 
-    merge_size = args.merge_size * 1024 * 1024 # convert to bytes
+    merge_size = args.size * 1024 * 1024 # convert to bytes
     file_sizes = [file.stat().st_size for file in orig_files]
     if sum(file_sizes) < merge_size:
         new_path = new_root / "data-0000.h5"

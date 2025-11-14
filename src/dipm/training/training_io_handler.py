@@ -127,7 +127,7 @@ class TrainingIOHandler:
         self.loggers.append(logger)
 
     def log(
-        self, category: LogCategory, to_log: dict[str, Any], epoch_number: int
+        self, category: LogCategory, to_log: dict[str, Any], epoch: int, step: int = 0
     ) -> None:
         """Logs data via the logging functions stored in this class.
 
@@ -135,10 +135,11 @@ class TrainingIOHandler:
             category: A logging category which describes what type of data is
                       logged (it is an enum)
             to_log: A data dictionary to log (typically, metrics).
-            epoch_number: The current epoch number.
+            epoch: The current epoch number used for validation and testing metrics.
+            step: The current step number used for trainining metrics.
         """
         for logger in self.loggers:
-            logger(category, to_log, epoch_number)
+            logger(category, to_log, epoch, step)
 
     def save_dataset_info(self, dataset_info: DatasetInfo) -> None:
         """Save the dataset information class to disk in JSON format.

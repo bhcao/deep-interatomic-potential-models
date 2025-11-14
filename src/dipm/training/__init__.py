@@ -22,9 +22,6 @@ from dipm.training.configs import (
     TrainingIOHandlerConfig,
 )
 from dipm.training.training_io_handler import TrainingIOHandler
-from dipm.training.training_loggers import (
-    convert_mse_to_rmse_in_logs,
-    log_metrics_to_line,
-    log_metrics_to_table,
-)
+from dipm.training.loggers.command_line import LineLogger, TableLogger
+from dipm.training.loggers.visual_tools import TensorBoardLogger, WandbLogger
 from dipm.training.training_loop import TrainingLoop

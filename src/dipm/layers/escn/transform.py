@@ -151,11 +151,13 @@ def _xyz_to_angles(xyz):
     y = xyz[..., 1]
     z = xyz[..., 2]
 
-    len_xyz = jnp.sqrt(x**2 + y**2 + z**2 + 1e-16)
-    len_xz = jnp.sqrt(x**2 + z**2 + 1e-16)
+    xyz2 = x**2 + y**2 + z**2
+    len_xyz = jnp.sqrt(jnp.where(xyz2 > 1e-16, xyz2, 1e-16))
+    xz2 = x**2 + z**2
+    len_xz = jnp.sqrt(jnp.where(xz2 > 1e-16, xz2, 1e-16))
 
-    sin_alpha = jnp.clip(z / len_xz, -1, 1)
-    cos_alpha = jnp.clip(x / len_xz, -1, 1)
+    sin_alpha = jnp.clip(x / len_xz, -1, 1)
+    cos_alpha = jnp.clip(z / len_xz, -1, 1)
 
     sin_beta = jnp.clip(len_xz / len_xyz, 0, 1)
     cos_beta = jnp.clip(y / len_xyz, -1, 1)
@@ -260,16 +262,16 @@ class SO3Rotation(nnx.Module):
 
         # Cache the Wigner-D matrices
         size = (self.lmax + 1) ** 2
-        wigner = jnp.zeros([len(xyz), size, size], dtype=xyz.dtype)
+        wigner_inv = jnp.zeros([len(xyz), size, size], dtype=xyz.dtype)
         start = 0
-        for block in blocks:
+        for i, block in enumerate(blocks):
             end = start + block.shape[1]
-            wigner = wigner.at[:, start:end, start:end].set(block)
+            wigner_inv = wigner_inv.at[:, start:end, start:end].set((-1) ** i * block)
             start = end
 
         # Mask the output to include only modes with m < mmax
-        wigner = wigner[:, self.mask.value, :]
-        wigner_inv = wigner.transpose((0, 2, 1))
+        wigner_inv = wigner_inv[:, :, self.mask.value]
+        wigner = wigner_inv.transpose((0, 2, 1))
 
         if self.scale:
             wigner_inv *= self.rotate_inv_rescale.value

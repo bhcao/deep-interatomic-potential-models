@@ -1,9 +1,12 @@
 [project]
 name = "dipm"
-version = "0.0.3"
+version = "0.0.4"
 description = "Deep Interatomic Potential Models in JAX"
+license = "LGPL-3.0-or-later"
 license-files = [
-    "LICENSE"
+    "LICENSE",
+    "LICENSE.LESSER",
+    "LICENSE.MLIP",
 ]
 authors = [
     {name = "Cao Bohan", email = "caobohan@mail.nankai.edu.cn"},
@@ -19,10 +22,10 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
     "Topic :: Software Development :: Libraries :: Python Modules",
-    "License :: OSI Approved :: Apache Software License",
+    "License :: OSI Approved :: GNU Lesser General Public License v3 or later (LGPLv3+)",
 ]
 
-requires-python = ">=3.10,<3.14"
+requires-python = ">=3.11,<3.14"
 
 dependencies = [
     "numpy >1.26.0,<3",
@@ -54,9 +57,9 @@ md = [
     "ase >=3.22.1",
     "jax-md >=0.2.26",
 ]
-md = [
-    "ase (>=3.22.0)",
-    "jax-md (>=0.2.8)",
+visual = [
+    "tensorboardx >=2.4.1",
+    "wandb >=0.12.10",
 ]
 
 [dependency-groups]

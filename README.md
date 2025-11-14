@@ -51,8 +51,6 @@ on the [e3nn](https://zenodo.org/records/6459381) library.
 
 ## 📦 Installation
 
-Please use python 3.10 or later because we rely on type annotations and other features introduced in this version.
-
 *dipm* can be installed via pip like this:
 
 ```bash
@@ -79,6 +77,13 @@ critical bugs. Here is the installation commands:
 ```bash
 pip install git+https://github.com/jax-md/jax-md.git
 pip install dipm[cuda,md]
+```
+
+To use TensorBoard or Weights and Biases logging in the training loop, install the
+corresponding optional dependencies:
+
+```bash
+pip install dipm[cuda,visual]
 ```
 
 Furthermore, note that among our library dependencies we have pinned the versions
@@ -172,6 +177,12 @@ Further details can be found in our white paper (see [below](#-citing-our-work))
 We would like to acknowledge beta testers for this library: Isabel Wilkinson,
 Nick Venanzi, Hassan Sirelkhatim, Leon Wehrhan, Sebastien Boyer, Massimo Bortone,
 Scott Cameron, Louis Robinson, Tom Barrett, and Alex Laterre.
+
+## 📝 License
+
+The upsteam repository [MLIP](https://github.com/instadeepai/mlip) is licensed under
+the [Apache 2.0 license](LICENSE.MLIP). This repository is licensed under the
+[GNU Lesser General Public License v3.0](LICENSE.LESSER).
 
 ## 📚 Citing
 

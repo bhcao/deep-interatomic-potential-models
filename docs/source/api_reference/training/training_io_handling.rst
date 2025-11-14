@@ -28,10 +28,30 @@ IO handling during training
 
         .. automethod:: __init__
 
-.. module:: dipm.training.training_loggers
+.. module:: dipm.training.loggers.command_line
 
-    .. autofunction:: log_metrics_to_table
+    .. autoclass:: LineLogger
 
-    .. autofunction:: log_metrics_to_line
+        .. automethod:: __init__
 
-    .. autofunction:: convert_mse_to_rmse_in_logs
+        .. automethod:: __call__
+
+    .. autoclass:: TableLogger
+
+        .. automethod:: __init__
+
+        .. automethod:: __call__
+
+.. module:: dipm.training.loggers.visual_tools
+
+    .. autoclass:: TensorBoardLogger
+
+        .. automethod:: __init__
+
+        .. automethod:: __call__
+
+    .. autoclass:: WandbLogger
+
+        .. automethod:: __init__
+
+        .. automethod:: __call__

@@ -1,11 +1,11 @@
 name: Package publishing
 
 on:
-  push:
-    branches: [main]
+  release:
+    types: [published]
 
 jobs:
-  publish-new-mlip-release:
+  publish-new-dipm-release:
     runs-on: ubuntu-latest
 
     container:
@@ -26,4 +26,4 @@ jobs:
       - name: build and publish
         run: |
           uv build
-          uv publish --token ${{secrets.POETRY_PYPI_TOKEN}}
+          uv publish --token ${{secrets.PYPI_API_TOKEN}} --publish-url https://test.pypi.org/legacy/

@@ -35,7 +35,7 @@ def _safe_matscipy_neighbour_list(**kwargs):
             raise ValueError(
                 "Neighbour list creation with matscipy failed due to "
                 "singular matrix inversion."
-            )
+            ) from None
 
         positions = kwargs.pop("positions")
         cutoff = kwargs.pop("cutoff")
@@ -53,6 +53,7 @@ def _safe_matscipy_neighbour_list(**kwargs):
 def get_neighborhood(
     positions: np.ndarray,  # [num_positions, 3]
     cutoff: float,
+    max_neighbors: int | None = None,
     pbc: tuple[bool, bool, bool] | None = None,
     cell: np.ndarray | None = None,  # [3, 3]
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -68,6 +69,7 @@ def get_neighborhood(
     Args:
         positions: The position matrix.
         cutoff: The distance cutoff for the edges in Angstrom.
+        max_neighbors: The maximum number of neighbors to consider for each atom.
         pbc: A tuple of bools representing if periodic boundary conditions exist in
              any of the spatial dimensions. Default is None, which means False in every
              direction.
@@ -93,13 +95,32 @@ def get_neighborhood(
 
     # See docstring of functions get_edge_relative_vectors() and
     # get_edge_vectors() on how senders and receivers are used
-    senders, receivers, senders_unit_shifts = _safe_matscipy_neighbour_list(
-        quantities="ijS",
+    neighbor_results = _safe_matscipy_neighbour_list(
+        quantities="ijS" if max_neighbors is None else "ijSd",
         pbc=pbc,
         cell=cell,
         positions=positions,
         cutoff=cutoff,
     )
+    if max_neighbors is None:
+        senders, receivers, senders_unit_shifts = neighbor_results
+    else:
+        senders, receivers, senders_unit_shifts, distances = neighbor_results
+        # Filter out edges with more than max_neighbors
+        nonmax_idx = []
+        for i in range(len(positions)):
+            idx_i = np.where(receivers == i)[0]
+            # Sort neighbors by distance, remove edges larger than max_neighbors
+            if len(idx_i) > max_neighbors:
+                idx_sorted = np.argsort(distances[idx_i])[: max_neighbors]
+                nonmax_idx.append(idx_i[idx_sorted])
+            else:
+                nonmax_idx.append(idx_i)
+        nonmax_idx = np.concatenate(nonmax_idx)
+
+        senders = senders[nonmax_idx]
+        receivers = receivers[nonmax_idx]
+        senders_unit_shifts = senders_unit_shifts[nonmax_idx]
 
     # If we are not having PBCs, then use shifts of zero
     shifts = senders_unit_shifts if any(pbc) else np.array([[0] * 3] * len(senders))

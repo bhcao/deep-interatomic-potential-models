@@ -15,14 +15,14 @@
 import logging
 from math import ceil
 
-import jax
 import numpy as np
+from flax import nnx
 from ase import Atoms
 from ase.calculators.calculator import Calculator, all_changes
 from matscipy.neighbours import neighbour_list
 
 from dipm.data.helpers.dynamically_batch import dynamically_batch
-from dipm.models import ForceField
+from dipm.models import ForceFieldPredictor
 from dipm.simulation.utils import create_graph_from_atoms
 from dipm.utils.no_pbc_cell import get_no_pbc_cell
 
@@ -44,7 +44,7 @@ class MLIPForceFieldASECalculator(Calculator):
         self,
         atoms: Atoms,
         edge_capacity_multiplier: float,
-        force_field: ForceField,
+        force_field: ForceFieldPredictor,
         allow_nodes_to_change: bool = False,
         node_capacity_multiplier: float = 1.0,
     ) -> None:
@@ -64,13 +64,14 @@ class MLIPForceFieldASECalculator(Calculator):
         """
         self.atoms = atoms
         self.num_atoms = len(self.atoms)
-        self.model_apply_fun = jax.jit(force_field.predictor.apply)
-        self.model_params = force_field.params
         self.graph_cutoff_angstrom = force_field.cutoff_distance
         self.allowed_atomic_numbers = force_field.allowed_atomic_numbers
         self.edge_capacity_multiplier = edge_capacity_multiplier
         self.allow_nodes_to_change = allow_nodes_to_change
         self.node_capacity_multiplier = node_capacity_multiplier
+
+        force_field.eval()
+        self.model_eval = nnx.jit(force_field)
 
         if np.any(atoms.pbc):
             senders, receivers, shifts = neighbour_list(
@@ -205,7 +206,7 @@ class MLIPForceFieldASECalculator(Calculator):
         )
 
         # Run predictions
-        predictions = self.model_apply_fun(self.model_params, batched_graph)
+        predictions = self.model_eval(batched_graph)
         if "energy" in properties:
             self.results["energy"] = np.array(predictions.energy[0])
         if "forces" in properties:

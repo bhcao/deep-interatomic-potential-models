@@ -1,16 +1,16 @@
 # Copyright 2025 Cao Bohan
 #
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
+# DIPM is free software: you can redistribute it and/or modify it under the terms
+# of the GNU Lesser General Public License as published by the Free Software
+# Foundation, either version 3 of the License, or (at your option) any later
+# version.
 #
-#      http://www.apache.org/licenses/LICENSE-2.0
+# DIPM is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
+# PARTICULAR PURPOSE. See the GNU Lesser General Public License for more details.
 #
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+# You should have received a copy of the GNU Lesser General Public License along
+# with this program. If not, see <https://www.gnu.org/licenses/>.
 
 """
 Converts LMDB and ExtXYZ datasets to HDF5 datasets.
@@ -53,39 +53,23 @@ def add_dataset_convert_args(parser):
         default=None,
         help="Directory to download dataset files, default to a temporary directory",
     )
-    existing_group = parser.add_mutually_exclusive_group()
-    existing_group.add_argument(
-        "--overwrite_existing",
-        action="store_true",
-        help="Whether to overwrite existing files",
-    )
-    existing_group.add_argument(
-        "--ignore_existing",
-        action="store_true",
-        help="Whether to ignore existing files",
-    )
     merge_split_group = parser.add_mutually_exclusive_group()
     merge_split_group.add_argument(
-        "--merge_dir",
+        "--merge",
         action="store_true",
         help="Whether to merge subdirectory into a single HDF5 file",
     )
     merge_split_group.add_argument(
-        "--split_file",
+        "--split",
         action="store_true",
         help="Whether to split the input file into multiple HDF5 files",
     )
     parser.add_argument(
-        "--merge_size",
+        "--size",
         type=int,
         default=None,
-        help="Total size of files to be merged into a HDF5 file (in MB), default to unlimited",
-    )
-    parser.add_argument(
-        "--split_size",
-        type=int,
-        default=512,
-        help="Size of each split file (in MB), default to 512 MB",
+        help="Rounded size of resulting HDF5 file (in MB), default to unlimited for `merge` and "
+             "512 MB for `split`",
     )
     parser.add_argument(
         "--energy_unit",

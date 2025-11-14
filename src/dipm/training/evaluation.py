@@ -14,7 +14,7 @@
 
 import functools
 from collections.abc import Callable
-from typing import TypeAlias
+from typing import TypeAlias, Any
 
 import flax
 from flax import nnx
@@ -55,6 +55,29 @@ def _evaluation_step(
     if should_parallelize:
         metrics = jax.lax.pmean(metrics, axis_name="device")
     return metrics
+
+
+def convert_mse_to_rmse_in_logs(to_log: dict[str, Any]) -> dict[str, Any]:
+    """Simple helper function to convert all MSE values to RMSE values in a given
+    metrics object to log. To compute a correct RMSE, we need to take the square root
+    at the very end and not before any averaging happens, hence, our logged metrics
+    objects only contain MSE as a metric, which needs to be converted with
+    this function.
+
+    Args:
+        to_log: The metrics dictionary.
+
+    Returns:
+        The metrics dictionary with any MSE entries converted to RMSE.
+    """
+
+    def _convert_value(key: str, value: Any) -> Any:
+        return np.sqrt(value) if "mse_" in key else value
+
+    return {
+        key.replace("mse_", "rmse_"): _convert_value(key, value)
+        for key, value in to_log.items()
+    }
 
 
 def make_evaluation_step(
@@ -127,10 +150,10 @@ def run_evaluation(
     to_log = {}
     for metric_name in metrics[0].keys():
         metrics_values = [m[metric_name] for m in metrics]
-        if not any(jnp.isnan(val).any() for val in metrics_values):
-            to_log[metric_name] = np.mean(metrics_values)
+        to_log[metric_name] = np.mean(metrics_values)
 
     mean_eval_loss = float(to_log.get("loss", jnp.nan))
+    to_log = convert_mse_to_rmse_in_logs(to_log)
 
     if is_test_set:
         io_handler.log(LogCategory.TEST_METRICS, to_log, epoch_number)

@@ -51,8 +51,6 @@ def setup_datasets_for_training():
         batch_size=4,
         num_batch_prefetch=1,
         batch_prefetch_num_devices=1,
-        avg_num_neighbors=None,
-        avg_r_min_angstrom=None,
     )
 
     reader = ExtxyzReader(config=reader_config)

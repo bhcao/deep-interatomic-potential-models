@@ -257,6 +257,7 @@ class JaxMDSimulationEngine(SimulationEngine):
     ) -> ModelEnergyFun | ModelForcesFun:
         """This function returns the core force calculate function compatible with
         JAX-MD and also compatible with batched simulations if requested."""
+        force_field_model.eval()
 
         def calc_func(
             positions: np.ndarray,

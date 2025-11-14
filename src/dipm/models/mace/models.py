@@ -72,8 +72,10 @@ class Mace(ForceModel):
         dataset_info: DatasetInfo,
         *,
         dtype: Dtype | None = None,
-        rngs: nnx.Rngs
+        rngs: nnx.Rngs | None = None,
     ):
+        if rngs is None:
+            rngs = nnx.Rngs(42)
         super().__init__(config, dataset_info, dtype=dtype)
         dtype = self.dtype
         param_dtype = get_dtype(self.config.param_dtype)

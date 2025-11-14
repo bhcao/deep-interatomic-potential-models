@@ -7,7 +7,7 @@ model:
   force_head: true        # Model specific parameters
   avg_num_neighbors: null # Default to Meta IS2RE value, so need to be overridden
   avg_num_nodes: null     # Same as above
-  seed: 42                # Random seed for model initialization
+  seed: 42                # Random seed for model initialization, default to 42
 
 dataset:
   train_dataset_paths: ./datasets/train      # Hdf5Reader
@@ -29,3 +29,5 @@ train:
   stage_splits: [0.7, 0.3]              # Two stage training
   energy_weights: [1.0, 25.0]           # Schedule for energy weight in stage 1 and 2
   forces_weights: [25.0, 1.0]           # Schedule for forces weight in stage 1 and 2
+  tensorboard: ./runs/equiformerv2      # Log directory for TensorBoard, disabled if not set
+  wandb: equiformerv2_train             # Project name for Weights and Biases, disabled if not set
