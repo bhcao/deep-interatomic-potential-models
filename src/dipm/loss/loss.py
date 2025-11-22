@@ -158,9 +158,10 @@ class WeightedEFSLoss(Loss, abc.ABC):
                 {
                     "energy_weight": self.energy_weight_schedule(epoch),
                     "forces_weight": self.forces_weight_schedule(epoch),
-                    "stress_weight": self.stress_weight_schedule(epoch),
                 }
             )
+            if prediction.stress is not None:
+                metrics.update({"stress_weight": self.stress_weight_schedule(epoch)})
 
         if eval_metrics:
             metrics |= self._compute_eval_metrics(prediction, ref_graph)
@@ -185,24 +186,42 @@ class MSELoss(WeightedEFSLoss):
     and stress errors.
     """
 
-    def _energy_term(self, ref_graph: GraphsTuple, energy: Array) -> Array:
-        return loss_helpers.mean_squared_error_energy(ref_graph, energy)
+    def _energy_term(self, graph: GraphsTuple, energy: Array) -> Array:
+        return loss_helpers.mean_squared_error_energy(graph, energy)
 
-    def _forces_term(self, ref_graph: GraphsTuple, forces: Array) -> Array:
-        return loss_helpers.mean_squared_error_forces(ref_graph, forces)
+    def _forces_term(self, graph: GraphsTuple, forces: Array) -> Array:
+        return loss_helpers.mean_squared_error_forces(graph, forces)
 
-    def _stress_term(self, ref_graph: GraphsTuple, stress: Array) -> Array:
-        return loss_helpers.mean_squared_error_stress(ref_graph, stress)
+    def _stress_term(self, graph: GraphsTuple, stress: Array) -> Array:
+        return loss_helpers.mean_squared_error_stress(graph, stress)
 
 
 class HuberLoss(WeightedEFSLoss):
     """Huber loss for scheduled average of energy, forces and stress errors."""
 
-    def _energy_term(self, ref_graph: GraphsTuple, energy: Array) -> Array:
-        return loss_helpers.huber_loss_energy(ref_graph, energy)
+    def _energy_term(self, graph: GraphsTuple, energy: Array) -> Array:
+        return loss_helpers.huber_loss_energy(graph, energy)
 
-    def _forces_term(self, ref_graph: GraphsTuple, forces: Array) -> Array:
-        return loss_helpers.adaptive_huber_loss_forces(ref_graph, forces)
+    def _forces_term(self, graph: GraphsTuple, forces: Array) -> Array:
+        return loss_helpers.adaptive_huber_loss_forces(graph, forces)
 
-    def _stress_term(self, ref_graph: GraphsTuple, stress: Array) -> Array:
-        return loss_helpers.huber_loss_stress(ref_graph, stress)
+    def _stress_term(self, graph: GraphsTuple, stress: Array) -> Array:
+        return loss_helpers.huber_loss_stress(graph, stress)
+
+
+class L2MAELoss(WeightedEFSLoss):
+    """L2-aggregated mean absolute error loss for scheduled average of energy,
+    forces and stress errors.
+
+    Computes MAE across samples, but applies an L2 norm within each sample over
+    its multiple target dimensions before averaging.
+    """
+
+    def _energy_term(self, graph: GraphsTuple, energy: Array) -> Array:
+        return loss_helpers.mean_absolute_error_energy(graph, energy)
+
+    def _forces_term(self, graph: GraphsTuple, forces: Array) -> Array:
+        return loss_helpers.l2_mean_absolute_error_forces(graph, forces)
+
+    def _stress_term(self, graph: GraphsTuple, stress: Array) -> Array:
+        return loss_helpers.l2_mean_absolute_error_stress(graph, stress)

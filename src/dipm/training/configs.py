@@ -74,7 +74,8 @@ class TrainingLoopConfig(pydantic.BaseModel):
                                  set to ``True`` by default.
         run_eval_at_start: Whether to run an evaluation on the validation set before
                            we start the first epoch. By default, it is set to ``True``.
-        log_per_steps: Number of steps to log the metrics. Default to 10000.
+        log_interval: Number of steps to log the metrics. Default is ``None``, which
+                      means logging once per epoch.
     """
 
     num_epochs: PositiveInt
@@ -82,7 +83,7 @@ class TrainingLoopConfig(pydantic.BaseModel):
     ema_decay: Proportion = 0.99
     use_ema_params_for_eval: bool = True
     run_eval_at_start: bool = True
-    log_per_steps: PositiveInt = 10000
+    log_interval: PositiveInt | None = None
 
 
 class TrainingIOHandlerConfig(pydantic.BaseModel):

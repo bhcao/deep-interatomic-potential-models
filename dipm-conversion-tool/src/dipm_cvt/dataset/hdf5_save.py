@@ -24,7 +24,7 @@ def save_hdf5_dataset(data, hdf5_path):
         for i, entry in enumerate(data):
             group = main_grp.create_group(f"config_{i}")
 
-            group["atomic_numbers"] = entry["elements"]
+            group["atomic_numbers"] = entry["atomic_numbers"]
             group["positions"] = entry["positions"]
 
             properties_subgrp = group.create_group("properties")
@@ -34,6 +34,14 @@ def save_hdf5_dataset(data, hdf5_path):
                 properties_subgrp["forces"] = entry["forces"]
             if "stress" in entry:
                 properties_subgrp["stress"] = entry["stress"]
+            if "charges" in entry:
+                properties_subgrp["charges"] = entry["charges"]
+            if "total_charge" in entry:
+                properties_subgrp["total_charge"] = entry["total_charge"]
+            if "total_spin" in entry:
+                properties_subgrp["total_spin"] = entry["total_spin"]
+            if "dipole" in entry:
+                properties_subgrp["dipole"] = entry["dipole"]
 
             group["pbc"] = entry["pbc"] if "pbc" in entry else "None"
             group["cell"] = entry["cell"] if "cell" in entry else "None"

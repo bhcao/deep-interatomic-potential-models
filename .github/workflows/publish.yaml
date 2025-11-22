@@ -1,4 +1,4 @@
-name: Package publishing
+name: Package Publishing
 
 on:
   release:
@@ -12,18 +12,24 @@ jobs:
        image: python:3.12-slim-bullseye
 
     steps:
-      - name: checkout
+      - name: Checkout
         uses: actions/checkout@v4
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: setup
+      - name: Setup
         run: apt-get update && apt-get install -y coreutils
 
-      - name: install uv
+      - name: Install uv
         uses: astral-sh/setup-uv@v6
 
-      - name: build and publish
+      - name: Build and publish dipm
+        run: |
+          uv build
+          uv publish --token ${{secrets.PYPI_API_TOKEN}} --publish-url https://test.pypi.org/legacy/
+
+      - name: Build and publish dipm-cvt
+        working-directory: dipm-conversion-tool
         run: |
           uv build
           uv publish --token ${{secrets.PYPI_API_TOKEN}} --publish-url https://test.pypi.org/legacy/

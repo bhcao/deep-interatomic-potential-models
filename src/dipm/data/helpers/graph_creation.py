@@ -27,6 +27,7 @@ def create_graph_from_chemical_system(
     distance_cutoff_angstrom: float,
     max_neighbors_per_atom: int | None = None,
     batch_it_with_minimal_dummy: bool = False,
+    task_index: int = 0,
 ) -> jraph.GraphsTuple:
     """Creates a jraph.GraphsTuple object from a chemical system object.
 
@@ -42,6 +43,7 @@ def create_graph_from_chemical_system(
                                      graph of size 1 node and 1 edge. Needed if you
                                      want to run a model inference on just this single
                                      graph. Default is False.
+        task_index: The index of the task / dataset that the graph belongs to. Default is 0.
 
     Returns:
         The ``jraph.GraphsTuple`` object for the given chemical system.
@@ -56,6 +58,8 @@ def create_graph_from_chemical_system(
 
     cell = np.zeros((3, 3)) if chemical_system.cell is None else chemical_system.cell
     energy = np.array(0.0 if chemical_system.energy is None else chemical_system.energy)
+    charge = np.array(0 if chemical_system.charge is None else chemical_system.charge)
+    spin = np.array(0 if chemical_system.spin is None else chemical_system.spin)
 
     graph = jraph.GraphsTuple(
         nodes=GraphNodes(
@@ -71,6 +75,9 @@ def create_graph_from_chemical_system(
                 energy=energy,
                 stress=chemical_system.stress,
                 weight=np.asarray(chemical_system.weight),
+                charge=charge,
+                spin=spin,
+                task=np.array(task_index),
             ),
         ),
         receivers=receivers,

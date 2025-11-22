@@ -6,18 +6,18 @@ For compatibility and efficiency reasons, we do not support LMDB and ExtXYZ data
 
 ## 📦 Installation
 
-To install the latest release of `dipm_cvt`, run the following command:
+To install the latest release of `dipm-cvt`, run the following command:
 
 ```
-pip install dipm-cvt[opt_dep]
+pip install "dipm-cvt[opt_dep]"
 ```
 
 or for development:
 
 ```
 git clone https://github.com/bhcao/deep-interatomic-potential-models.git
-cd deep-interatomic-potential-models/dipm-conversion-tools
-pip install -e .[opt_dep]
+cd deep-interatomic-potential-models/dipm-conversion-tool
+pip install -e ".[opt_dep]"
 ```
 
 The `opt_dep` argument can be one or more of the following:
@@ -29,7 +29,7 @@ The `opt_dep` argument can be one or more of the following:
 - `openqdc`: to enable support for OpenQDC datasets.
 - `all`: to enable all optional dependencies above.
 
-After installation, you can use the `dipm-cvt-cli` script, which should be in the usual place that pip places binaries (or you can explicitly run `python3 <path_to_cloned_dir>/dipm-conversion-tools/src/dipm_cvt/cli/main.py`).
+After installation, you can use the `dipm-cvt-cli` script, which should be in the usual place that pip places binaries (or you can explicitly run `python3 <path_to_cloned_dir>/dipm-conversion-tool/src/dipm_cvt/cli/main.py`).
 
 ## 📌 Usage
 
@@ -70,5 +70,8 @@ Explanation of options:
 To convert a model checkpoint, run the following command:
 
 ```
-dipm-cvt-cli -m <checkpoint_path> <safetensors_path>
+dipm-cvt-cli -m <checkpoint_path> <safetensors_path> --model_name <model_name>
 ```
+
+Supported model names:
+- `equiformer_v2`

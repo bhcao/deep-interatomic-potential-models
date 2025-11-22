@@ -119,6 +119,7 @@ def run_evaluation(
     io_handler: TrainingIOHandler,
     devices: list[jax.Device] | None = None, # type: ignore
     is_test_set: bool = False,
+    extended_to_log: dict[str, Any] | None = None,
 ) -> float:
     """Runs a model evaluation on a given dataset.
 
@@ -132,6 +133,7 @@ def run_evaluation(
         devices: The jax devices. It can be None if not run in parallel (default).
         is_test_set: Whether the evaluation is done on the test set, i.e.,
                      not during a training run. By default, this is false.
+        extended_to_log: Additional metrics to log.
 
     Returns:
         The mean loss.
@@ -151,6 +153,8 @@ def run_evaluation(
     for metric_name in metrics[0].keys():
         metrics_values = [m[metric_name] for m in metrics]
         to_log[metric_name] = np.mean(metrics_values)
+    if extended_to_log is not None:
+        to_log.update(extended_to_log)
 
     mean_eval_loss = float(to_log.get("loss", jnp.nan))
     to_log = convert_mse_to_rmse_in_logs(to_log)

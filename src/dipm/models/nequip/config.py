@@ -12,14 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import pydantic
-
 from dipm.layers.activations import Activation
 from dipm.layers.radial_embeddings import RadialEnvelope
-from dipm.typing import Irreps, NonNegativeInt, PositiveFloat, PositiveInt, DtypeEnum
+from dipm.typing import Irreps, NonNegativeInt, PositiveFloat, PositiveInt
+from dipm.models.force_model import ForceModelConfig
 
 
-class NequipConfig(pydantic.BaseModel):
+class NequipConfig(ForceModelConfig):
     """The configuration / hyperparameters of the NequIP model.
 
     Attributes:
@@ -49,10 +48,6 @@ class NequipConfig(pydantic.BaseModel):
         avg_num_neighbors: The mean number of neighbors for atoms. If ``None``
                            (default), use the value from the dataset info.
                            It is used to rescale messages by this value.
-        num_species: The number of elements (atomic species descriptors) allowed.
-                     If ``None`` (default), infer the value from the atomic energies
-                     map in the dataset info.
-        param_dtype: The data type of model parameters. Default is ``jnp.float32``.
     """
 
     num_layers: PositiveInt = 2
@@ -66,5 +61,3 @@ class NequipConfig(pydantic.BaseModel):
     scalar_mlp_std: PositiveFloat = 4.0
     atomic_energies: str | dict[int, float] | None = None
     avg_num_neighbors: float | None = None
-    num_species: PositiveInt | None = None
-    param_dtype: DtypeEnum = DtypeEnum.F32

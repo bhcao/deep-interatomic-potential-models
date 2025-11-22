@@ -101,7 +101,7 @@ def compute_dataset_info_from_graphs(
     logger.info(
         "Starting to compute mandatory dataset statistics: this may take some time..."
     )
-    
+
     logger.debug("Computing average number of neighbors...")
     avg_num_neighbors = compute_avg_num_neighbors(graphs)
     logger.debug("Average number of neighbors: %.1f", avg_num_neighbors)

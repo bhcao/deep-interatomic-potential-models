@@ -88,6 +88,22 @@ class Hdf5Dataset(Dataset):
             _unpack_value(subgrp["properties"]["stress"][()])
             if "stress" in subgrp["properties"] else None
         )
+        charges = (
+            _unpack_value(subgrp["properties"]["charges"][()])
+            if "charges" in subgrp["properties"] else None
+        )
+        total_charge = (
+            _unpack_value(subgrp["properties"]["total_charge"][()])
+            if "total_charge" in subgrp["properties"] else None
+        )
+        total_spin = (
+            _unpack_value(subgrp["properties"]["total_spin"][()])
+            if "total_spin" in subgrp["properties"] else None
+        )
+        dipole = (
+            _unpack_value(subgrp["properties"]["dipole"][()])
+            if "dipole" in subgrp["properties"] else None
+        )
 
         pbc = _unpack_value(subgrp["pbc"][()])
         cell = _unpack_value(subgrp["cell"][()])
@@ -105,6 +121,10 @@ class Hdf5Dataset(Dataset):
             cell=cell if cell is not None else DEFAULT_CELL,
             pbc=pbc if pbc is not None else DEFAULT_PBC,
             weight=DEFAULT_WEIGHT,
+            atomic_charges=charges,
+            charge=total_charge,
+            spin=total_spin,
+            dipole=dipole,
         )
         if self.post_process_fn is not None:
             system = self.post_process_fn(system)

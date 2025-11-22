@@ -12,14 +12,13 @@
 # You should have received a copy of the GNU Lesser General Public License along
 # with this program. If not, see <https://www.gnu.org/licenses/>.
 
-from pydantic import BaseModel
-
 from dipm.layers.escn import LayerNormType
-from dipm.typing import PositiveInt, NonNegativeInt, DtypeEnum
+from dipm.typing import PositiveInt, NonNegativeInt
 from dipm.models.uma.blocks import FeedForwardType, ActivationType
+from dipm.models.force_model import ForceModelConfig
 
 
-class UMAConfig(BaseModel):
+class UMAConfig(ForceModelConfig):
     """The configuration / hyperparameters of the UMA model.
 
     Attributes:
@@ -42,15 +41,9 @@ class UMAConfig(BaseModel):
                          means not to use any atomic energies in the model. Lastly, one can also
                          pass an atomic energies dictionary via this parameter different from the
                          one in the dataset info, that is used.
-        dataset_list: List of different datasets used in training. Every dataset will have a
-                      different embedding. `None` means no dataset embedding.
-        num_species: The number of elements (atomic species descriptors) allowed. If ``None``
-                     (default), infer the value from the atomic energies map in the dataset info.
         num_experts: Number of experts in the MoLE block. Default is 8.
         mole_dropout: Dropout rate for MoLE router. Default is 0.0.
         use_composition_embedding: Whether to use composition embedding in MoLE router.
-        param_dtype: The data type of model parameters. Default is ``jnp.float32``.
-        force_head: Whether to predict forces with forces head. Default is ``False``.
     """
 
     num_layers: PositiveInt = 12
@@ -65,10 +58,6 @@ class UMAConfig(BaseModel):
     act_type: ActivationType = ActivationType.GATE
     ff_type: FeedForwardType = FeedForwardType.GRID
     atomic_energies: str | dict[int, float] | None = None
-    num_species: PositiveInt | None = None
-    dataset_list: list[str] | None = ["oc20", "omol", "omat", "odac", "omc"]
     num_experts: int = 8
     mole_dropout: float = 0.0
     use_composition_embedding: bool = False
-    param_dtype: DtypeEnum = DtypeEnum.F32
-    force_head: bool = False

@@ -27,7 +27,7 @@ from ase.md.velocitydistribution import (
 )
 from ase.optimize import BFGS
 
-from dipm.simulation.ase.mlip_ase_calculator import MLIPForceFieldASECalculator
+from dipm.simulation.ase.ase_calculator import ForceFieldASECalculator
 from dipm.simulation.configs import ASESimulationConfig
 from dipm.simulation.enums import SimulationType
 from dipm.simulation.simulation_engine import ForceFieldPredictor, SimulationEngine
@@ -77,10 +77,11 @@ class ASESimulationEngine(SimulationEngine):
 
         self._init_box()
 
-        self.model_calculator = MLIPForceFieldASECalculator(
+        self.model_calculator = ForceFieldASECalculator(
             self.atoms,
             self._config.edge_capacity_multiplier,
             force_field,
+            task=self._config.task,
         )
 
         self._temperature_schedule = get_temperature_schedule(

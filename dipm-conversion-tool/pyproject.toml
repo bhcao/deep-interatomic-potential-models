@@ -1,5 +1,5 @@
 [project]
-name = "dipm_cvt"
+name = "dipm-cvt"
 version = "0.0.1"
 description = "Dataset and model file conversion tool for DIPM"
 license = "LGPL-3.0-or-later"

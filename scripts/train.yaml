@@ -1,5 +1,6 @@
 model:
-  target: EquiformerV2    # Model class name in dipm.models
+  # Create a model with hyperparameters
+  target: EquiformerV2    # Model name in dipm.models.KNOWN_MODELS, both `EquiformerV2` or `equiformer_v2` are valid
   num_layers: 8           # Model specific parameters
   num_rbf: 512            # Model specific parameters
   lmax: 4                 # Model specific parameters
@@ -8,6 +9,9 @@ model:
   avg_num_neighbors: null # Default to Meta IS2RE value, so need to be overridden
   avg_num_nodes: null     # Same as above
   seed: 42                # Random seed for model initialization, default to 42
+  # Or use a pretrained model
+  # pretrained: ./checkpoints/equiformerv2.safetensors
+  # keep_force_head: false
 
 dataset:
   train_dataset_paths: ./datasets/train      # Hdf5Reader
@@ -16,12 +20,14 @@ dataset:
   graph_cutoff_angstrom: 5.0                 # GraphDatasetBuilder
   batch_size: 16                             # GraphDatasetBuilder
   info_file: ./checkpoints/dataset_info.json # Skip info calculation if exists
+  # Defined in GraphDatasetBuilder, the model will be updated accordingly, but only works with pretrained models
+  # drop_unseen_elements: true
 
 train:
   num_epochs: 10                        # TrainingLoopConfig
   final_learning_rate: 1e-4             # OptimizerConfig
   dtype: bfloat16                       # Computation dtype in mixed precision training
-  loss: MSELoss                         # Loss class name in dipm.loss
+  loss: MSELoss                         # Loss name in dipm.loss.KNOWN_LOSSES, both `mse`, `mse_loss` or `MSELoss` are valid
   local_model_output_dir: ./checkpoints # TrainingIOHandler
   restore_checkpoint_if_exists: true    # TrainingIOHandler
   restore_optimizer_state: true         # TrainingIOHandler
@@ -29,5 +35,5 @@ train:
   stage_splits: [0.7, 0.3]              # Two stage training
   energy_weights: [1.0, 25.0]           # Schedule for energy weight in stage 1 and 2
   forces_weights: [25.0, 1.0]           # Schedule for forces weight in stage 1 and 2
-  tensorboard: ./runs/equiformerv2      # Log directory for TensorBoard, disabled if not set
-  wandb: equiformerv2_train             # Project name for Weights and Biases, disabled if not set
+  tensorboard: equiformerv2             # Project name for TensorBoard, logdir will be ./logs/project_name/datetime
+  wandb: equiformerv2                   # Project name for Weights and Biases, logs will be in ./logs/project_name/

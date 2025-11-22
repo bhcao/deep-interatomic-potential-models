@@ -3,7 +3,7 @@
 [![uv](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/uv/main/assets/badge/v0.json)](https://github.com/astral-sh/uv)
 [![Python 3.11](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-blue)](https://www.python.org/downloads/release/python-3110/)
 [![pre-commit](https://img.shields.io/badge/pre--commit-enabled-brightgreen?logo=pre-commit)](https://github.com/pre-commit/pre-commit)
-[![Tests and Linters 🧪](https://github.com/instadeepai/mlip/actions/workflows/tests_and_linters.yaml/badge.svg?branch=main)](https://github.com/instadeepai/mlip/actions/workflows/tests_and_linters.yaml)
+[![Tests and Linters 🧪](https://github.com/bhcao/deep-interatomic-potential-models/actions/workflows/tests_and_linters.yaml/badge.svg?branch=main)](https://github.com/bhcao/deep-interatomic-potential-models/actions/workflows/tests_and_linters.yaml)
 ![badge](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/mlipbot/b6e4bf384215e60775699a83c3c00aef/raw/pytest-coverage-comment.json)
 
 ## 👀 Overview
@@ -76,14 +76,14 @@ critical bugs. Here is the installation commands:
 
 ```bash
 pip install git+https://github.com/jax-md/jax-md.git
-pip install dipm[cuda,md]
+pip install "dipm[cuda,md]"
 ```
 
 To use TensorBoard or Weights and Biases logging in the training loop, install the
 corresponding optional dependencies:
 
 ```bash
-pip install dipm[cuda,visual]
+pip install "dipm[cuda,visual]"
 ```
 
 Furthermore, note that among our library dependencies we have pinned the versions
@@ -95,14 +95,14 @@ our dependencies in upcoming releases.
 
 We only support HDF5 format datasets (compatible with HDF5 used in
 [MACE](https://github.com/ACEsuit/mace)). We provided a dataset conversion toolkit
-[DIPM-Cvt](./dipm-conversion-tools) for this purpose. We recommend to install it in
+[DIPM-Cvt](https://github.com/bhcao/deep-interatomic-potential-models/blob/main/dipm-conversion-tool) for this purpose. We recommend to install it in
 a different environment than *dipm* to avoid conflicts. We provided a command-line
 interface `dipm-cvt-cli` for user-friendly usage.
 
 ## ⚡ Examples
 
 In addition to the in-depth tutorials provided as part of our documentation
-[here](https://instadeepai.github.io/mlip/user_guide/index.html#deep-dive-tutorials),
+[here](https://bhcao.github.io/dipm/user_guide/index.html#deep-dive-tutorials),
 we also provide example Jupyter notebooks that can be used as
 simple templates to build your own MLIP pipelines:
 
@@ -181,8 +181,8 @@ Scott Cameron, Louis Robinson, Tom Barrett, and Alex Laterre.
 ## 📝 License
 
 The upsteam repository [MLIP](https://github.com/instadeepai/mlip) is licensed under
-the [Apache 2.0 license](LICENSE.MLIP). This repository is licensed under the
-[GNU Lesser General Public License v3.0](LICENSE.LESSER).
+the [Apache 2.0 license](https://github.com/bhcao/deep-interatomic-potential-models/blob/main/LICENSE.MLIP). This repository is licensed under the
+[GNU Lesser General Public License v3.0](https://github.com/bhcao/deep-interatomic-potential-models/blob/main/LICENSE.LESSER).
 
 ## 📚 Citing
 

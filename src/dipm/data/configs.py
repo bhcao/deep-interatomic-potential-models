@@ -168,6 +168,10 @@ class GraphDatasetBuilderConfig(pydantic.BaseModel):
                                 Default is ``False``. Make sure that if you set this
                                 to ``True``, the models assume ``"zero"`` atomic
                                 energies as can be set in the model hyperparameters.
+        drop_unseen_elements: If ``dataset_info`` is provided, whether to drop unseen
+                              elements in the training dataset from the ``dataset_info``
+                              atomic numbers table. If ``True``, remember to remove unused
+                              embeddings from the model by yourself. Default is ``False``.
     """
 
     graph_cutoff_angstrom: PositiveFloat = 5.0
@@ -180,3 +184,4 @@ class GraphDatasetBuilderConfig(pydantic.BaseModel):
     batch_prefetch_num_devices: PositiveInt = 1
 
     use_formation_energies: bool = False
+    drop_unseen_elements: bool = False

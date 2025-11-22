@@ -62,7 +62,7 @@ def create_openqdc_dataset(
     for bunch in dataset:
         data_dict = {
             "positions": bunch.positions,
-            "elements": bunch.atomic_numbers,
+            "atomic_numbers": bunch.atomic_numbers,
             "energy": bunch.energies.item(),
         }
         if bunch.get("forces") is not None:

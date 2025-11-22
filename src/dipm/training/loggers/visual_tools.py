@@ -12,6 +12,8 @@
 # You should have received a copy of the GNU Lesser General Public License along
 # with this program. If not, see <https://www.gnu.org/licenses/>.
 
+from pathlib import Path
+from datetime import datetime
 from typing import Any, TYPE_CHECKING
 
 from dipm.training.training_io_handler import LogCategory
@@ -40,8 +42,10 @@ class TensorBoardLogger:
         epoch: The current epoch number used for validation and testing metrics.
         step: The current step number used for trainining metrics.
     """
-    def __init__(self, logdir: str, writer: Any | None = None):
+    def __init__(self, project: str, writer: Any | None = None):
         if writer is None:
+            current_time = datetime.now().strftime('%b%d_%H-%M-%S')
+            logdir = Path('./logs') / project / current_time
             self.writer = tensorboardX.SummaryWriter(logdir)
         else:
             self.writer = writer
@@ -81,7 +85,7 @@ class WandbLogger:
     """
     def __init__(self, project: str, run: Any | None = None):
         if run is None:
-            self.run = wandb.init(project=project, reinit=True)
+            self.run = wandb.init(project=project, dir=f'./logs/{project}', reinit=True)
         else:
             self.run = run
 

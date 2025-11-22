@@ -21,10 +21,10 @@ from dipm.models.equiformer_v2.models import EquiformerV2
 from dipm.models.uma.models import UMA
 
 KNOWN_MODELS = {
-    "Mace": Mace,
-    "Nequip": Nequip,
-    "Visnet": Visnet,
-    "LiTEN": LiTEN,
-    "EquiformerV2": EquiformerV2,
-    "UMA": UMA,
+    "mace": Mace,
+    "nequip": Nequip,
+    "visnet": Visnet,
+    "liten": LiTEN,
+    "equiformerv2": EquiformerV2,
+    "uma": UMA,
 }

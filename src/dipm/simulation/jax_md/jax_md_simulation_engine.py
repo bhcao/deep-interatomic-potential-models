@@ -119,8 +119,21 @@ class JaxMDSimulationEngine(SimulationEngine):
 
         senders = tree_map(lambda n: n.idx[1, :], neighbors, is_leaf=is_neighbor_list)
         receivers = tree_map(lambda n: n.idx[0, :], neighbors, is_leaf=is_neighbor_list)
+        if self._config.task is not None:
+            if force_field.config.task_list is None:
+                raise ValueError(
+                    "Task specified but no task list found in force field config."
+                )
+            task_index = force_field.config.task_list.index(self._config.task)
+        else:
+            if force_field.config.task_list is not None:
+                raise ValueError(
+                    "Task list found in force field config but no task specified."
+                )
+            task_index = 0
+
         graph = self._init_base_graph(
-            atoms, senders, receivers, force_field.allowed_atomic_numbers
+            atoms, senders, receivers, force_field.allowed_atomic_numbers, task_index
         )
 
         system_state = self._system_state_from_neighbors(neighbors)
@@ -266,12 +279,13 @@ class JaxMDSimulationEngine(SimulationEngine):
             force_field: ForceFieldPredictor,
             is_batched: bool,
             split_idx: list[int] | None,
+            ctx: dict | None,
         ) -> np.ndarray | list[np.ndarray]:
             updated_graph = update_graph_in_simulation_step(
                 system_state, positions, base_graph, is_batched
             )
 
-            force_field_output = force_field(updated_graph)
+            force_field_output = force_field(updated_graph, ctx=ctx)
             output_forces = jnp.delete(force_field_output.forces, -1, axis=0)
             output_forces = output_forces * KCAL_PER_MOL_PER_ELECTRON_VOLT
 
@@ -286,12 +300,16 @@ class JaxMDSimulationEngine(SimulationEngine):
             sizes = np.delete(graph.n_node, 1)
             forces_split_idx = [int(sum(sizes[:i])) for i in range(1, len(sizes))]
 
+        # Not jitted as it is only called once
+        ctx = force_field_model.precall(graph)
+
         return functools.partial(
             calc_func,
             base_graph=graph,
             force_field=force_field_model,
             is_batched=is_batched_sim,
             split_idx=forces_split_idx,
+            ctx=ctx,
         )
 
     def _get_initial_jax_md_state(
@@ -528,6 +546,7 @@ class JaxMDSimulationEngine(SimulationEngine):
         senders: np.ndarray | list[np.ndarray],
         receivers: np.ndarray | list[np.ndarray],
         allowed_atomic_numbers: set[int],
+        task_index: int = 0,
     ) -> jraph.GraphsTuple:
         """Initiates the base graph (batched or unbatched) for the simulation.
 
@@ -539,6 +558,7 @@ class JaxMDSimulationEngine(SimulationEngine):
             senders: The sender indices of the edges.
             receivers: The receiver indices of the edges.
             allowed_atomic_numbers: The allowed atomic numbers given by the model used.
+            task_index: The index of the task/dataset used for simulation. Default is 0.
 
         Returns:
             The base graph (either batched or unbatched).
@@ -550,6 +570,7 @@ class JaxMDSimulationEngine(SimulationEngine):
                 r,
                 self._displacement_fun,
                 allowed_atomic_numbers,
+                task_index=task_index,
             ),
             atoms,
             senders,

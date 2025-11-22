@@ -21,8 +21,7 @@ from dipm.data.helpers.dynamically_batch import dynamically_batch
 def test_mace_outputs_correct_forces_and_energies_for_example_graph(
     setup_system_and_mace_model,
 ):
-    _, graph, mace_apply_fun, mace_ff = setup_system_and_mace_model
-    params = mace_ff.params
+    _, graph, mace_apply_fun, _ = setup_system_and_mace_model
 
     num_nodes = graph.nodes.positions.shape[0]
     num_edges = graph.senders.shape[0]
@@ -31,7 +30,7 @@ def test_mace_outputs_correct_forces_and_energies_for_example_graph(
             [graph], n_node=num_nodes + 3, n_edge=num_edges + 5, n_graph=2
         )
     )
-    result = mace_apply_fun(params, batched_graph)
+    result = mace_apply_fun(batched_graph)
 
     assert list(result.energy) == pytest.approx([-0.1127705, 0], abs=1e-3)
     assert result.forces.shape == (num_nodes + 3, 3)

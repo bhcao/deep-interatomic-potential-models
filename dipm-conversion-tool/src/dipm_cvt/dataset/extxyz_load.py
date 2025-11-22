@@ -46,11 +46,13 @@ def load_extxyz_dataset(extxyz_path):
 
     data = []
     for atoms in atoms_list:
-        elements = np.array([ase_data.atomic_numbers[sym] for sym in atoms.symbols], dtype=np.int32)
+        atomic_numbers = np.array(
+            [ase_data.atomic_numbers[sym] for sym in atoms.symbols], dtype=np.int32
+        )
 
         data_dict = {
             "positions": atoms.get_positions(),
-            "elements": elements,
+            "atomic_numbers": atomic_numbers,
             "pbc": atoms.get_pbc(),
             "cell": np.array(atoms.get_cell()),
         }

@@ -20,14 +20,14 @@ import jax.numpy as jnp
 
 def rms_norm(vec, eps):
     dist = jnp.sqrt(jnp.sum(vec**2, axis=1, keepdims=True) + eps)
-    dist = jnp.clip(dist, a_min=eps)
+    dist = jnp.clip(dist, min=eps)
     dist = jnp.sqrt(jnp.mean(dist**2, axis=-1))
     return vec / jax.nn.relu(dist).reshape(-1, 1, 1)
 
 
 def max_min_norm(vec, eps):
     dist = jnp.sqrt(jnp.sum(vec**2, axis=1, keepdims=True) + eps)
-    direct = vec / jnp.clip(dist, a_min=eps)
+    direct = vec / jnp.clip(dist, min=eps)
     max_val = jnp.max(dist, axis=-1, keepdims=True)
     min_val = jnp.min(dist, axis=-1, keepdims=True)
     delta = max_val - min_val

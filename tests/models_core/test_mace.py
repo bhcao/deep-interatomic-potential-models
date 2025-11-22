@@ -13,11 +13,11 @@
 # limitations under the License.
 
 import e3nn_jax as e3nn
-import jax
+from flax import nnx
 import pytest
 
 from dipm.models.mace.models import MaceBlock
-from dipm.layers.radial_embeddings import soft_envelope
+from dipm.layers.radial_embeddings import SoftEnvelope
 from dipm.layers.radial_basis import bessel_basis
 
 
@@ -28,9 +28,9 @@ def graph_sizes():
 
 @pytest.fixture
 def graph_edges(graph_sizes):
-    rng = jax.random.PRNGKey(12)
+    rngs = nnx.Rngs(12)
     n0, n1 = graph_sizes
-    senders, receivers = jax.random.randint(rng, (2, n1), 0, n0)
+    senders, receivers = rngs.randint((2, n1), 0, n0)
     return senders, receivers
 
 
@@ -47,7 +47,7 @@ def mace_hparams():
         num_species=6,
         num_bessel=8,
         radial_basis=bessel_basis,
-        radial_envelope=soft_envelope,
+        radial_envelope=SoftEnvelope(10.0),
         l_max=3,
         node_symmetry=3,
         correlation=3,
@@ -56,23 +56,22 @@ def mace_hparams():
 
 @pytest.fixture
 def mace_inputs(graph_sizes, graph_edges, mace_hparams):
-    rng = jax.random.PRNGKey(12)
+    rngs = nnx.Rngs(12)
     # graph topology
     n0, n1 = graph_sizes
     senders, receivers = graph_edges
     # graph features
     num_species = mace_hparams["num_species"]
-    node_specie = jax.random.randint(rng, (n0,), 0, num_species - 1)
-    vectors = jax.random.normal(rng, (n1, 3))
+    node_specie = rngs.randint((n0,), 0, num_species - 1)
+    vectors = rngs.normal((n1, 3))
     return (vectors, node_specie, senders, receivers)
 
 
 def test_mace_shape(graph_sizes, mace_hparams, mace_inputs):
-    rng = jax.random.PRNGKey(12)
+    rngs = nnx.Rngs(12)
     # forward pass
-    mace = MaceBlock(**mace_hparams)
-    params = mace.init(rng, *mace_inputs)
-    out = mace.apply(params, *mace_inputs)
+    mace = MaceBlock(**mace_hparams, rngs=rngs)
+    out = mace(*mace_inputs)
     # check output shape
     n0, n1 = graph_sizes
     layers = mace_hparams["num_interactions"]

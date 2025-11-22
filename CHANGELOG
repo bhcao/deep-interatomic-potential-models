@@ -1,5 +1,13 @@
 # Changelog
 
+## Release 0.0.5
+
+- Adding support for spin, charge and task/dataset input.
+- Adding support for drop unseen elements from model.
+- Adding L2MAELoss borrowed from ocpmodels.
+- Adding support for using pre-trained models for training.
+- Fixing bugs when using `extended_metrics` and two stage training.
+
 ## Release 0.0.4
 
 - Rebasing dipm on mlip-v0.1.6 to fix bugs (such as incorrect distance on periodic

@@ -36,6 +36,7 @@ def create_graph_from_atoms(
     allowed_atomic_numbers: set[int],
     cell: np.ndarray | None = None,
     shifts: ShiftVectors | None = None,
+    task_index: int = 0,
 ) -> jraph.GraphsTuple:
     """Creates a graph for a group of atoms (i.e., a chemical system).
 
@@ -57,6 +58,7 @@ def create_graph_from_atoms(
         cell: The structure's box.
         shifts: Vectors defining which periodic box each node is in, so that one can
                 compute the edge vectors from the positions.
+        task_index: The index of the task / dataset that the graph belongs to. Default is 0.
 
     Returns:
         The graph representing the system.
@@ -99,6 +101,9 @@ def create_graph_from_atoms(
                 energy=np.array(0.0),
                 stress=None,
                 weight=np.asarray(1.0),
+                charge=np.array(0) if 'charge' not in atoms.info else atoms.info['charge'],
+                spin=np.array(0) if'spin' not in atoms.info else atoms.info['spin'],
+                task=np.array(task_index),
             ),
         ),
         receivers=receivers,

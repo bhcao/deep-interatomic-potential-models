@@ -26,6 +26,9 @@ Cell: TypeAlias = np.ndarray  # [num_graphs, 3, 3]
 Stress: TypeAlias = np.ndarray  # [num_graphs, 3, 3]
 Energy: TypeAlias = np.ndarray  # [num_graphs]
 WeightingFactors: TypeAlias = np.ndarray  # [num_graphs]
+Charge: TypeAlias = np.ndarray  # [num_graphs]
+Spin: TypeAlias = np.ndarray  # [num_graphs]
+Task: TypeAlias = np.ndarray  # [num_graphs]
 
 
 class GraphNodes(NamedTuple):
@@ -72,3 +75,6 @@ class GraphGlobals(NamedTuple):
     weight: WeightingFactors
     energy: Energy | None = None
     stress: Stress | None = None
+    charge: Charge | None = None
+    spin: Spin | None = None
+    task: Task | None = None

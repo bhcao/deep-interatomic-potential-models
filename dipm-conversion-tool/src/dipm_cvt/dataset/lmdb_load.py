@@ -86,7 +86,7 @@ def _load_pyg_data(data_bytes, ref_energies=None):
 
     data_dict = {
         "positions": data.pos.numpy(),
-        "elements": data.atomic_numbers.numpy().astype(np.int32),
+        "atomic_numbers": data.atomic_numbers.numpy().astype(np.int32),
     }
     if hasattr(data, "force"):
         data_dict["forces"] = data.force.numpy()
@@ -98,6 +98,10 @@ def _load_pyg_data(data_bytes, ref_energies=None):
         data_dict["cell"] = data.cell.numpy()
     if hasattr(data, "pbc"):
         data_dict["pbc"] = data.pbc.numpy()
+    if hasattr(data, "charge"):
+        data_dict["total_charge"] = data.charge.numpy()
+    if hasattr(data, "multiplicity"):
+        data_dict["total_spin"] = data.multiplicity.numpy()
 
     if ref_energies is not None and data_dict.get("energy") is not None:
         data_dict["energy"] += ref_energies[f'random{data.sid}']
@@ -111,7 +115,7 @@ def _load_json_data(data_bytes):
 
     data_dict = {
         "positions": np.array(data_dict_old["positions"]),
-        "elements": np.array(data_dict_old["numbers"], dtype=np.int32),
+        "atomic_numbers": np.array(data_dict_old["numbers"], dtype=np.int32),
     }
     if data_dict_old.get("forces") is not None:
         data_dict["forces"] = np.array(data_dict_old["forces"])

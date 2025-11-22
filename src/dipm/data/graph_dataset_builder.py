@@ -25,6 +25,7 @@ from dipm.data.chemical_system import ChemicalSystem
 from dipm.data.chemical_datasets.dataset import Dataset
 from dipm.data.chemical_datasets.utils import (
     filter_systems_with_unseen_atoms_and_assign_atomic_species as filter_fn,
+    CHEMICAL_SYMBOLS,
 )
 from dipm.data.configs import GraphDatasetBuilderConfig
 from dipm.data.dataset_info import DatasetInfo, compute_dataset_info_from_graphs
@@ -128,8 +129,18 @@ class GraphDatasetBuilder:
             test_systems = []
 
         if self._dataset_info is not None:
-            # Assign atomic species from prescribed z_table
-            z_table = self._retrieve_z_table(self._dataset_info)
+            if self._config.drop_unseen_elements:
+                # Remove unseen elements from atomic_energies_map
+                z_table = self._construct_z_table(
+                    train_systems, max_set=set(self._dataset_info.atomic_energies_map.keys())
+                )
+                self._dataset_info.atomic_energies_map = {
+                    k: v for k, v in self._dataset_info.atomic_energies_map.items()
+                    if k in z_table.zs
+                }
+            else:
+                # Assign atomic species from prescribed z_table
+                z_table = self._retrieve_z_table(self._dataset_info)
         else:
             # Assign atomic species from observed set of elements
             z_table = self._construct_z_table(train_systems)
@@ -297,13 +308,25 @@ class GraphDatasetBuilder:
         return AtomicNumberTable(sorted(dataset_info.atomic_energies_map.keys()))
 
     @staticmethod
-    def _construct_z_table(train_systems: list[ChemicalSystem]) -> AtomicNumberTable:
-        """Construct a fresh `AtomicNumberTable` from list of train systems."""
-        return AtomicNumberTable(
-            sorted(
-                set(np.concatenate([system.atomic_numbers for system in train_systems]))
-            )
-        )
+    def _construct_z_table(
+        train_systems: list[ChemicalSystem], max_set: set[int] | None = None
+    ) -> AtomicNumberTable:
+        """Construct a fresh `AtomicNumberTable` from list of train systems.
+        
+        Args:
+            train_systems: List of train systems.
+            max_set: If not `None`, only consider elements in this set.
+        """
+        z_set = set(np.concatenate([system.atomic_numbers for system in train_systems]))
+        if max_set is not None:
+            if not z_set.issubset(max_set):
+                logger.warning(
+                    "Elements %s in the dataset does not exist in dataset info you provided. "
+                    "Samples containing them will be removed.",
+                    ", ".join([CHEMICAL_SYMBOLS[i] for i in z_set - max_set])
+                )
+            z_set = z_set.intersection(max_set)
+        return AtomicNumberTable(sorted(z_set))
 
     def _get_prefetched_iterators(
         self, devices: list[jax.Device]

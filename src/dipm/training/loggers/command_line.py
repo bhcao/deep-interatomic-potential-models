@@ -96,7 +96,7 @@ class LineLogger:
         for k, v in metrics.items():
             result += k.replace("_", " ").capitalize()
             result += " = "
-            result += str(v if isinstance(v, int) else f"{float(v):.3f}")
+            result += str(v if isinstance(v, int) else f"{float(v):.3g}")
             result += " | "
 
         if result == "":

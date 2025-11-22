@@ -97,7 +97,7 @@ def get_single_map(input_path, output_path, args, add_suffix=False):
         if isinstance(input_path, Path):
             input_size = input_path.stat().st_size
         elif isinstance(input_path, list):
-            input_size = sum(len(d['elements']) for d in input_path) * 68 # approximate
+            input_size = sum(len(d['atomic_numbers']) for d in input_path) * 68 # approximate
         else: # This will never happen
             raise ValueError(f"Unsupported input type: {type(input_path)}")
         split = input_size // split_size
@@ -105,7 +105,10 @@ def get_single_map(input_path, output_path, args, add_suffix=False):
             split = 1 # if file is smaller than split_size
         new_paths_ = [output_path / f"data-{i:04d}.h5" for i in range(split)]
     else:
-        new_paths_ = [output_path.with_suffix(".h5") if add_suffix else output_path]
+        # In case file name is like "data.0001.h5"
+        new_paths_ = [
+            output_path.parent / (output_path.name + '.h5') if add_suffix else output_path
+        ]
 
     new_paths = []
     for new_path in new_paths_:

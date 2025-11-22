@@ -13,21 +13,19 @@
 # limitations under the License.
 
 import e3nn_jax as e3nn
-import flax.linen as nn
-import jax
+from flax import nnx
 import jax.numpy as jnp
-import jax.random as random
 import pytest
 
 from dipm.models.mace.models import MaceBlock
-from dipm.layers.radial_embeddings import soft_envelope
+from dipm.layers.radial_embeddings import SoftEnvelope
 from dipm.layers.radial_basis import bessel_basis
 
 class _TestMaceBlock:
 
     # test parameters
     graph_sizes: tuple[int, int] = 128, 512
-    key: jax.Array = random.key(42)
+    rngs: nnx.Rngs = nnx.Rngs(42)
     # module arguments
     num_species: int = 6
     num_channels: int = 16
@@ -42,11 +40,11 @@ class _TestMaceBlock:
     def inputs(self) -> tuple[jnp.ndarray, jnp.ndarray]:
         # graph topology
         n0, n1 = self.graph_sizes
-        senders, receivers = jax.random.randint(self.key, (2, n1), 0, n0)
+        senders, receivers = self.rngs.randint((2, n1), 0, n0)
         # graph features
         num_species = self.num_species
-        node_specie = jax.random.randint(self.key, (n0,), 0, num_species - 1)
-        vectors = jax.random.normal(self.key, (n1, 3))
+        node_specie = self.rngs.randint((n0,), 0, num_species - 1)
+        vectors = self.rngs.normal((n1, 3))
         return (vectors, node_specie, senders, receivers)
 
     @pytest.fixture(scope="class")
@@ -61,7 +59,7 @@ class _TestMaceBlock:
             num_species=self.num_species,
             num_bessel=8,
             radial_basis=bessel_basis,
-            radial_envelope=soft_envelope,
+            radial_envelope=SoftEnvelope(10.0),
             symmetric_tensor_product_basis=False,
             off_diagonal=False,
             l_max=self.l_max,
@@ -70,19 +68,18 @@ class _TestMaceBlock:
             num_readout_heads=1,
             readout_mlp_irreps="16x0e",
             correlation=self.correlation,
-            gate=jax.nn.silu,
+            activation="silu",
             gate_nodes=self.gate_nodes,
             species_embedding_dim=self.species_embedding_dim,
         )
         return mace_block_kwargs
 
     @pytest.fixture(scope="class")
-    def module(self, mace_block_kwargs) -> nn.Module:
-        return MaceBlock(**mace_block_kwargs)
+    def module(self, mace_block_kwargs) -> nnx.Module:
+        return MaceBlock(**mace_block_kwargs, rngs=self.rngs)
 
     def test_output_shape(self, module, inputs):
-        params = module.init(self.key, *inputs)
-        out = module.apply(params, *inputs)
+        out = module(*inputs)
         n0, n1 = self.graph_sizes
         layers = self.num_interactions
         scalars_out = e3nn.Irreps(self.output_irreps).num_irreps
