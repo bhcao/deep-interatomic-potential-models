@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from functools import partial
 import logging
 from math import ceil
 
@@ -47,6 +48,7 @@ class ForceFieldASECalculator(Calculator):
         force_field: ForceFieldPredictor,
         allow_nodes_to_change: bool = False,
         node_capacity_multiplier: float = 1.0,
+        task: str | None = None,
     ) -> None:
         """Constructor.
 
@@ -61,6 +63,8 @@ class ForceFieldASECalculator(Calculator):
             node_capacity_multiplier: Factor to multiply the number of nodes by to
                                       obtain the node capacity including padding.
                                       Defaults to 1.0.
+            task: The task/dataset used as input to force models that support
+                  multitasking/datasets, such as UMA.
         """
         self.atoms = atoms
         self.num_atoms = len(self.atoms)
@@ -71,7 +75,8 @@ class ForceFieldASECalculator(Calculator):
         self.node_capacity_multiplier = node_capacity_multiplier
 
         force_field.eval()
-        self.force_field = nnx.jit(force_field)
+        self.force_field = force_field
+        self.model_eval = None
 
         if np.any(atoms.pbc):
             senders, receivers, shifts = neighbour_list(
@@ -96,6 +101,19 @@ class ForceFieldASECalculator(Calculator):
 
         num_edges = len(senders)
 
+        if task is not None:
+            if force_field.config.task_list is None:
+                raise ValueError(
+                    "Task specified but no task list found in force field config."
+                )
+            task_index = force_field.config.task_list.index(task)
+        else:
+            if force_field.config.task_list is not None:
+                raise ValueError(
+                    "Task list found in force field config but no task specified."
+                )
+            task_index = 0
+
         _displacement_fun = None
         self.base_graph = create_graph_from_atoms(
             self.atoms,
@@ -105,6 +123,7 @@ class ForceFieldASECalculator(Calculator):
             self.allowed_atomic_numbers,
             cell=self.atoms.cell,
             shifts=shifts,
+            task_index=task_index,
         )
         self.current_edge_capacity = ceil(self.edge_capacity_multiplier * num_edges)
         self.current_node_capacity = ceil(
@@ -208,7 +227,11 @@ class ForceFieldASECalculator(Calculator):
         )
 
         # Run predictions
-        predictions = self.force_field(batched_graph)
+        if self.model_eval is None:
+            # Not jitted as it is only called once
+            ctx = self.force_field.precall(batched_graph)
+            self.model_eval = nnx.jit(partial(self.force_field, ctx=ctx))
+        predictions = self.model_eval(batched_graph)
         if "energy" in properties:
             self.results["energy"] = np.array(predictions.energy[0])
         if "forces" in properties:

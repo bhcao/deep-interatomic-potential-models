@@ -55,8 +55,10 @@ def _count_parameters(model: nnx.Module) -> int:
 class _TrainingLog:
     def __init__(self, num_steps):
         self.last_log_step = num_steps
+        self.epoch_last_log_step = num_steps
         self.metrics: list[dict] = []
         self.start_time = time.perf_counter()
+        self.epoch_start_time = self.start_time
 
     def append(self, metrics: dict) -> None:
         '''Appends metrics of a training.'''
@@ -75,6 +77,19 @@ class _TrainingLog:
         self.last_log_step = num_steps
         self.start_time = end_time
         self.metrics = []
+        return metrics
+
+    def get_epoch(self, num_steps: int):
+        '''Returns the time and step used of the current epoch.'''
+        end_time = time.perf_counter()
+        steps = num_steps - self.epoch_last_log_step
+        total_time = end_time - self.epoch_start_time
+        metrics = {}
+        metrics["runtime_in_minutes"] = total_time / 60
+        metrics["steps_per_epoch"] = steps
+        # Update
+        self.epoch_last_log_step = num_steps
+        self.epoch_start_time = end_time
         return metrics
 
 
@@ -237,7 +252,7 @@ class TrainingLoop:
                 self.epoch_number,
             )
             t_after_train = time.perf_counter()
-            self._run_evaluation()
+            self._run_evaluation(log)
             t_after_eval = time.perf_counter()
 
             logger.debug(
@@ -254,6 +269,7 @@ class TrainingLoop:
     def _run_training_epoch(self, rngs: nnx.Rngs, log: _TrainingLog) -> None:
         self.force_field.train()
 
+        log_interval = self.config.log_interval or self.steps_per_epoch
         for batch in self.train_dataset:
             if self._should_unreplicate_train_batches:
                 batch = flax.jax_utils.unreplicate(batch)
@@ -263,12 +279,22 @@ class TrainingLoop:
             log.append(jax.device_get(_metrics))
 
             num_steps = self._get_num_steps_from_training_state()
-            if num_steps % self.config.log_per_steps == 0:
+            if num_steps % log_interval == 0:
                 metrics = log.get(num_steps)
                 self._log_after_training_steps(metrics, self.epoch_number, num_steps)
 
-    def _run_evaluation(self) -> None:
+    def _run_evaluation(self, log: _TrainingLog | None = None) -> None:
         devices = jax.devices() if self.should_parallelize else None
+
+        extended_to_log = {}
+        if log is not None:
+            extended_to_log = log.get_epoch(self._get_num_steps_from_training_state())
+            if self.extended_metrics:
+                epoch_time_in_seconds = extended_to_log["runtime_in_minutes"] * 60
+                extended_to_log["nodes_per_second"] = self.total_num_nodes / epoch_time_in_seconds
+                extended_to_log["graphs_per_second"] = (
+                   self.total_num_graphs / epoch_time_in_seconds
+                )
 
         eval_model = self.force_field
         if self.epoch_number != 0 and self.config.use_ema_params_for_eval:
@@ -281,6 +307,7 @@ class TrainingLoop:
             self.epoch_number,
             self.io_handler,
             devices,
+            extended_to_log=extended_to_log,
         )
 
         if self.epoch_number == 0:
@@ -413,7 +440,7 @@ class TrainingLoop:
         try:
             if self.extended_metrics:
                 opt_hyperparams = jax.device_get(
-                    nnx.to_arrays(nnx.pure(self.training_state.optimizer.opt_state))
+                    nnx.to_arrays(nnx.pure(self.training_state.optimizer.opt_state.hyperparams))
                 )
                 if self.should_parallelize:
                     opt_hyperparams = flax.jax_utils.unreplicate(opt_hyperparams)
@@ -421,7 +448,6 @@ class TrainingLoop:
         except AttributeError:
             pass
 
-        # TODO(bhcao): Add more extended_metrics
         metrics = convert_mse_to_rmse_in_logs(metrics)
         self.io_handler.log(LogCategory.TRAIN_METRICS, metrics, epoch_number, num_steps)
 

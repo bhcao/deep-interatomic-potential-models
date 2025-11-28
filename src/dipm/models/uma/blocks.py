@@ -201,12 +201,12 @@ class GridAtomwise(nnx.Module):
         return node_feats
 
 
-class ChargeSpinDatasetEmbed(nnx.Module):
-    '''Embeds the charge, spin and dataset information.'''
+class ChargeSpinTaskEmbed(nnx.Module):
+    '''Embeds the charge, spin and task / dataset information.'''
     def __init__(
         self,
         num_channels: int,
-        dataset_size: int | None = None,
+        num_tasks: int | None = None,
         *,
         dtype: Dtype | None = None,
         param_dtype: Dtype = jnp.float32,
@@ -221,30 +221,30 @@ class ChargeSpinDatasetEmbed(nnx.Module):
             101, num_channels, dtype=dtype, param_dtype=param_dtype, rngs=rngs
         )
 
-        self.dataset_size = dataset_size
-        if dataset_size is not None:
-            self.dataset_emb = nnx.Embed(
-                dataset_size, num_channels, dtype=dtype, param_dtype=param_dtype, rngs=rngs
+        self.num_tasks = num_tasks
+        if num_tasks is not None:
+            self.task_emb = nnx.Embed(
+                num_tasks, num_channels, dtype=dtype, param_dtype=param_dtype, rngs=rngs
             )
 
-        # Embed + Linear is mathematically equivalent to one_hot + Linear or Embed + add + bais
-        self.bais = nnx.Param(initializers.zeros(rngs.params(), (num_channels,), param_dtype))
+        # Embed + Linear is mathematically equivalent to one_hot + Linear or Embed + add + bias
+        self.bias = nnx.Param(initializers.zeros(rngs.params(), (num_channels,), param_dtype))
         self.dtype = dtype
 
     def __call__(
         self,
         charge: jax.Array,
         spin: jax.Array,
-        dataset: jax.Array | None = None,
+        task: jax.Array | None = None,
     ):
-        bais, = dtypes.promote_dtype((self.bais.value,), dtype=self.dtype)
+        bias, = dtypes.promote_dtype((self.bias.value,), dtype=self.dtype)
         charge_emb = self.charge_emb(charge + 100)
         spin_emb = self.spin_emb(spin)
         embeddings = charge_emb + spin_emb
 
-        if self.dataset_size is not None:
-            dataset_emb = self.dataset_emb(dataset)
-            embeddings += dataset_emb
+        if self.num_tasks is not None:
+            task_emb = self.task_emb(task)
+            embeddings += task_emb
 
-        embeddings += bais
+        embeddings += bias
         return nnx.silu(embeddings)

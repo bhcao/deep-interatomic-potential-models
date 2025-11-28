@@ -5,7 +5,7 @@ import pytest
 
 from dipm.data import ChemicalSystem
 from dipm.data.helpers import create_graph_from_chemical_system
-from dipm.models import ForceField
+from dipm.models import ForceFieldPredictor
 
 
 def _salt_graph_from_positions(
@@ -38,7 +38,7 @@ def test_potential_pressure_sign(
     such that we can easily infer the expected sign of the potential pressure.
     """
     mlip_network = quadratic_mlip
-    predictor = ForceField.from_mlip_network(mlip_network, seed=2, predict_stress=True)
+    predictor = ForceFieldPredictor(mlip_network, predict_stress=True)
 
     positions = np.array([[0.0, 0.0, 0.0], [distance, 0.0, 0.0]])
     graph = _salt_graph_from_positions(positions, cell_length=2.0)
@@ -50,7 +50,7 @@ def test_potential_pressure_sign(
 def test_stress_is_translation_invariant(quadratic_mlip):
     """Assert stress is invariant under translation over the cell boundary."""
     mlip_network = quadratic_mlip
-    predictor = ForceField.from_mlip_network(mlip_network, seed=2, predict_stress=True)
+    predictor = ForceFieldPredictor(mlip_network, predict_stress=True)
 
     base_positions = np.array([[0.0, 0.0, 0.0], [0.6, 0.5, 0.5]])
     base_graph = _salt_graph_from_positions(base_positions)
@@ -68,6 +68,6 @@ def test_stress_is_symmetric(salt_graph, quadratic_mlip):
     """Assert stress tensor is symmetric."""
     graph = salt_graph
     mlip_network = quadratic_mlip
-    predictor = ForceField.from_mlip_network(mlip_network, seed=2, predict_stress=True)
+    predictor = ForceFieldPredictor(mlip_network, predict_stress=True)
     stress = predictor(graph).stress
     assert jnp.allclose(stress[0], stress[0].transpose(), atol=1e-5, rtol=1e-5)

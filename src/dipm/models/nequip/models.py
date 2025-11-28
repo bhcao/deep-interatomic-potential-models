@@ -15,6 +15,7 @@
 import functools
 from collections.abc import Callable
 import logging
+import re
 
 import e3nn_jax as e3nn
 from flax import nnx
@@ -38,7 +39,6 @@ from dipm.models.force_model import ForceModel
 from dipm.models.nequip.config import NequipConfig
 from dipm.models.nequip.nequip_helpers import prod, tp_path_exists
 from dipm.utils.safe_norm import safe_norm
-from dipm.typing import get_dtype
 
 logger = logging.getLogger("dipm")
 
@@ -63,6 +63,7 @@ class Nequip(ForceModel):
 
     Config = NequipConfig
     config: NequipConfig
+    embedding_layer_regexp = re.compile(r"\.node_embeddings\.kernels\.0$")
 
     def __init__(
         self,
@@ -75,8 +76,6 @@ class Nequip(ForceModel):
         if rngs is None:
             rngs = nnx.Rngs(42)
         super().__init__(config, dataset_info, dtype=dtype)
-        dtype = self.dtype
-        param_dtype = get_dtype(self.config.param_dtype)
 
         e3nn.config("path_normalization", "path")
         e3nn.config("gradient_normalization", "path")
@@ -86,9 +85,8 @@ class Nequip(ForceModel):
         avg_num_neighbors = self.config.avg_num_neighbors
         if avg_num_neighbors is None:
             avg_num_neighbors = self.dataset_info.avg_num_neighbors
-        num_species = self.config.num_species
-        if num_species is None:
-            num_species = len(self.dataset_info.atomic_energies_map)
+
+        num_species = len(self.dataset_info.atomic_energies_map)
 
         radial_envelope_fun = get_radial_envelope_cls(self.config.radial_envelope)(r_max)
 
@@ -113,12 +111,12 @@ class Nequip(ForceModel):
 
         self.nequip_model = NequipBlock(
             **nequip_kwargs,
-            dtype=dtype,
-            param_dtype=param_dtype,
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
             rngs=rngs
         )
         self.atomic_energies = nnx.Cache(get_atomic_energies(
-            self.dataset_info, self.config.atomic_energies, num_species, dtype=dtype
+            self.dataset_info, self.config.atomic_energies, num_species, dtype=self.dtype
         ))
 
     def __call__(
@@ -127,8 +125,7 @@ class Nequip(ForceModel):
         node_species: jax.Array,
         senders: jax.Array,
         receivers: jax.Array,
-        _n_node: jax.Array, # Nel version of pyg.Data.batch, not used
-        _rngs: nnx.Rngs | None = None, # Rngs for dropout, None for eval, not used
+        **_kwargs,
     ) -> jax.Array:
 
         node_energies = self.nequip_model(edge_vectors, node_species, senders, receivers)
@@ -170,7 +167,7 @@ class NequipBlock(nnx.Module):
 
         node_irreps = e3nn.Irreps(node_irreps)
 
-        # Non-scaler output will be trunctated
+        # Non-scaler output will be truncated
         self.node_embeddings = Linear(
             irreps_in=e3nn.Irreps(f"{num_species}x0e"),
             irreps_out=node_irreps,
@@ -242,9 +239,6 @@ class NequipBlock(nnx.Module):
         node_attr = e3nn.IrrepsArray(embedding_irreps, identity[node_species])
         node_feats = self.node_embeddings(node_attr)
 
-        # Edges Embedding
-        if hasattr(edge_vectors, "irreps"):
-            edge_vectors = edge_vectors.array
         scalar_dr_edge = safe_norm(edge_vectors, axis=-1)
 
         edge_sh = e3nn.spherical_harmonics(self.sh_irreps, edge_vectors, normalize=True)
@@ -356,7 +350,7 @@ class NequipLayer(nnx.Module):
         h_out_irreps = irreps_scalars + irreps_gate_scalars + irreps_nonscalars
 
         if self.use_residual_connection:
-            self.residual_tenor_product = FullyConnectedTensorProduct(
+            self.residual_tensor_product = FullyConnectedTensorProduct(
                 in_irreps, e3nn.Irreps(f"{num_species}x0e"), h_out_irreps,
                 dtype=dtype, param_dtype=param_dtype, rngs=rngs,
             )
@@ -455,7 +449,7 @@ class NequipLayer(nnx.Module):
     ) -> e3nn.IrrepsArray:
 
         if self.use_residual_connection:
-            res_conn = self.residual_tenor_product(node_feats, node_attrs)
+            res_conn = self.residual_tensor_product(node_feats, node_attrs)
 
         # first linear, stays in current h-space
         node_feats = self.linear_in(node_feats)

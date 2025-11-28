@@ -13,17 +13,18 @@
 # limitations under the License.
 
 import e3nn_jax as e3nn
-from pydantic import BaseModel, model_validator
+from pydantic import model_validator
 from typing_extensions import Self
 
 from dipm.layers import (
     Activation,
     RadialEnvelope,
 )
-from dipm.typing import Irreps, NonNegativeInt, PositiveInt, DtypeEnum
+from dipm.typing import Irreps, NonNegativeInt, PositiveInt
+from dipm.models.force_model import ForceModelConfig
 
 
-class MaceConfig(BaseModel):
+class MaceConfig(ForceModelConfig):
     """The configuration / hyperparameters of the MACE model.
 
     Attributes:
@@ -56,7 +57,7 @@ class MaceConfig(BaseModel):
         radial_envelope: The radial envelope function, by default it
                          is `"polynomial_envelope"`.
                          The only other option is `"soft_envelope"`.
-        polymomial_degree: The degree of the polynomial envelope function if `"radial_envelope"`
+        polynomial_degree: The degree of the polynomial envelope function if `"radial_envelope"`
                            is `"polynomial_envelope"`. Default is 5.
         symmetric_tensor_product_basis: Whether to use a symmetric tensor product basis
                                         (default is `False`).
@@ -72,9 +73,6 @@ class MaceConfig(BaseModel):
                            It is used to rescale messages by this value.
         avg_r_min: The mean minimum neighbour distance in Angstrom. If `None`
                    (default), use the value from the dataset info.
-        num_species: The number of elements (atomic species descriptors) allowed.
-                     If `None` (default), infer the value from the atomic energies
-                     map in the dataset info.
         gate_nodes: Whether to use a gating for the self-interaction.
                     Default is `False`.
                     See our white paper for a description of this option that is
@@ -84,7 +82,6 @@ class MaceConfig(BaseModel):
                                `species_embedding_dim`. Default is `None`.
                                See our white paper for a description of this option
                                that is not present in the original MACE architecture.
-        param_dtype: The data type of model parameters. Default is ``jnp.float32``.
     """
 
     num_layers: PositiveInt = 2
@@ -98,15 +95,13 @@ class MaceConfig(BaseModel):
     num_bessel: PositiveInt = 8
     activation: Activation = Activation.SILU
     radial_envelope: RadialEnvelope = RadialEnvelope.POLYNOMIAL
-    polymomial_degree: PositiveInt = 5
+    polynomial_degree: PositiveInt = 5
     symmetric_tensor_product_basis: bool = False
     atomic_energies: str | dict[int, float] | None = None
     avg_num_neighbors: float | None = None
     avg_r_min: float | None = None
-    num_species: int | None = None
     gate_nodes: bool = False
     species_embedding_dim: PositiveInt | None = None
-    param_dtype: DtypeEnum = DtypeEnum.F32
 
     @model_validator(mode="after")
     def _validate_readout_irreps(self) -> Self:

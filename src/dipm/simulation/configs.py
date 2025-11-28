@@ -95,6 +95,8 @@ class SimulationConfig(pydantic.BaseModel):
         edge_capacity_multiplier: Factor to multiply the number of edges by to
                                   obtain the edge capacity including padding. Defaults
                                   to 1.25.
+        task: The task/dataset to use for the simulation. This parameter is used as input
+              to force models that support multitasking/datasets, such as UMA.
     """
 
     simulation_type: SimulationType = SimulationType.MD
@@ -102,6 +104,7 @@ class SimulationConfig(pydantic.BaseModel):
     snapshot_interval: PositiveInt = 1
     box: PositiveFloat | ThreeDimensionalListWithPositiveFloats | None = None
     edge_capacity_multiplier: FloatLargerThanOrEqualToOne = DEFAULT_EDGE_CAPACITY_MULT
+    task: str | None = None
 
 
 class JaxMDSimulationConfig(SimulationConfig):

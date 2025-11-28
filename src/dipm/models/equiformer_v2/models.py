@@ -1,18 +1,4 @@
-# Copyright 2025 InstaDeep Ltd
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#      http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-#
-# Modifications Copyright 2025 Cao Bohan
+# Copyright 2025 Cao Bohan
 #
 # DIPM is free software: you can redistribute it and/or modify it under the terms
 # of the GNU Lesser General Public License as published by the Free Software
@@ -25,6 +11,8 @@
 #
 # You should have received a copy of the GNU Lesser General Public License along
 # with this program. If not, see <https://www.gnu.org/licenses/>.
+
+import re
 
 from flax import nnx
 from flax.typing import Dtype
@@ -58,7 +46,6 @@ from dipm.models.equiformer_v2.transformer_block import (
     FeedForwardNetwork,
 )
 from dipm.utils.safe_norm import safe_norm
-from dipm.typing import get_dtype
 
 
 class EquiformerV2(ForceModel):
@@ -80,7 +67,8 @@ class EquiformerV2(ForceModel):
 
     Config = EquiformerV2Config
     config: EquiformerV2Config
-    force_head_prefix = "equiformer_model.force_block."
+    force_head_prefix = "equiformer_model.force_block"
+    embedding_layer_regexp = re.compile(r"\.(sphere|senders|receivers)_embedding\.embedding$")
 
     def __init__(
         self,
@@ -93,8 +81,6 @@ class EquiformerV2(ForceModel):
         if rngs is None:
             rngs = nnx.Rngs(42)
         super().__init__(config, dataset_info, dtype=dtype)
-        dtype = self.dtype
-        param_dtype = get_dtype(self.config.param_dtype)
 
         r_max = self.dataset_info.cutoff_distance_angstrom
 
@@ -106,9 +92,7 @@ class EquiformerV2(ForceModel):
         if avg_num_nodes is None:
             avg_num_nodes = self.dataset_info.avg_num_nodes
 
-        num_species = self.config.num_species
-        if num_species is None:
-            num_species = len(self.dataset_info.atomic_energies_map)
+        num_species = len(self.dataset_info.atomic_energies_map)
 
         # Decide the feedforward network type
         if self.config.use_grid_mlp:
@@ -158,18 +142,18 @@ class EquiformerV2(ForceModel):
             rbf_width=2.0,
             cutoff=r_max,
             num_species=num_species,
-            predict_forces=self.predict_forces,
+            predict_forces=self.config.force_head,
         )
 
         self.equiformer_model = EquiformerV2Block(
             **equiformer_kargs,
-            dtype=dtype,
-            param_dtype=param_dtype,
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
             rngs=rngs,
         )
 
         self.atomic_energies = nnx.Cache(get_atomic_energies(
-            self.dataset_info, self.config.atomic_energies, num_species, dtype=dtype
+            self.dataset_info, self.config.atomic_energies, num_species, dtype=self.dtype
         ))
 
     def __call__(
@@ -185,7 +169,7 @@ class EquiformerV2(ForceModel):
             edge_vectors, node_species, senders, receivers, n_node, rngs
         )
 
-        if self.predict_forces:
+        if self.config.force_head:
             node_energies, forces = node_energies
 
         mean = self.dataset_info.scaling_mean
@@ -194,7 +178,7 @@ class EquiformerV2(ForceModel):
 
         node_energies += self.atomic_energies.value[node_species]  # [n_nodes, ]
 
-        if self.predict_forces:
+        if self.config.force_head:
             return node_energies, std * forces
         return node_energies
 
@@ -373,7 +357,7 @@ class EquiformerV2Block(nnx.Module):
 
         self.so3_rotation = SO3Rotation(lmax, mmax, mapping_coeffs.perm, dtype=dtype or param_dtype)
 
-        self.regess_forces = predict_forces
+        self.regress_forces = predict_forces
 
     def __call__(
         self,
@@ -442,7 +426,7 @@ class EquiformerV2Block(nnx.Module):
         node_energies = self.energy_block(node_feats)
         node_energies = node_energies[:, 0, 0] / self.avg_num_nodes
 
-        if self.regess_forces:
+        if self.regress_forces:
             forces = self.force_block(
                 node_feats,
                 node_species,

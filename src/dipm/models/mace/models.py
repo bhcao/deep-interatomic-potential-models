@@ -17,6 +17,7 @@
 # limitations under the License.
 
 from collections.abc import Callable
+import re
 
 import e3nn_jax as e3nn
 from flax import nnx
@@ -43,7 +44,6 @@ from dipm.models.mace.blocks import (
 from dipm.models.mace.config import MaceConfig
 from dipm.models.force_model import ForceModel
 from dipm.utils.safe_norm import safe_norm
-from dipm.typing import get_dtype
 
 
 class Mace(ForceModel):
@@ -65,6 +65,10 @@ class Mace(ForceModel):
 
     Config = MaceConfig
     config: MaceConfig
+    embedding_layer_regexp = re.compile(
+        r"\.(species_embed\.embedding|node_embed\.embeddings|equivariant_product"
+        r"\.(gate_kernel|gate_bias)|contractions\.\d+\.weights\.\d+|)$"
+    )
 
     def __init__(
         self,
@@ -77,8 +81,6 @@ class Mace(ForceModel):
         if rngs is None:
             rngs = nnx.Rngs(42)
         super().__init__(config, dataset_info, dtype=dtype)
-        dtype = self.dtype
-        param_dtype = get_dtype(self.config.param_dtype)
 
         e3nn.config("path_normalization", "path")
         e3nn.config("gradient_normalization", "path")
@@ -93,13 +95,11 @@ class Mace(ForceModel):
         if avg_r_min is None:
             avg_r_min = self.dataset_info.avg_r_min_angstrom
 
-        num_species = self.config.num_species
-        if num_species is None:
-            num_species = len(self.dataset_info.atomic_energies_map)
+        num_species = len(self.dataset_info.atomic_energies_map)
 
         radial_envelope_cls = get_radial_envelope_cls(self.config.radial_envelope)
         if self.config.radial_envelope == RadialEnvelope.POLYNOMIAL:
-            radial_envelope_fun = radial_envelope_cls(r_max, exponent=self.config.polymomial_degree)
+            radial_envelope_fun = radial_envelope_cls(r_max, exponent=self.config.polynomial_degree)
         else:
             radial_envelope_fun = radial_envelope_cls(r_max)
 
@@ -137,13 +137,13 @@ class Mace(ForceModel):
 
         self.mace_block = MaceBlock(
             **mace_block_kwargs,
-            dtype=dtype,
-            param_dtype=param_dtype,
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
             rngs=rngs
         )
 
         self.atomic_energies = nnx.Cache(get_atomic_energies(
-            self.dataset_info, self.config.atomic_energies, num_species, dtype=dtype
+            self.dataset_info, self.config.atomic_energies, num_species, dtype=self.dtype
         ))
 
     def __call__(
@@ -152,8 +152,7 @@ class Mace(ForceModel):
         node_species: jax.Array,
         senders: jax.Array,
         receivers: jax.Array,
-        _n_node: jax.Array, # Nel version of pyg.Data.batch, not used
-        _rngs: nnx.Rngs | None = None, # Rngs for dropout, None for eval, not used
+        **_kwargs,
     ) -> jax.Array:
 
         # [n_nodes, num_interactions, num_heads, 0e]

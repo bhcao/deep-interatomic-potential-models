@@ -39,7 +39,7 @@ Target: TypeAlias = PathLike
 MODEL_SUBDIR_NAME = "model"
 DATASET_INFO_FILENAME = "dataset_info.json"
 
-_logger = logging.getLogger("dipm")
+logger = logging.getLogger("dipm")
 
 
 class CheckpointRestorationError(Exception):
@@ -111,6 +111,7 @@ class TrainingIOHandler:
         self._future = None
         self.ckpt_manager = self._configure_checkpointing()
 
+    # pylint: disable=redefined-outer-name
     def attach_logger(
         self, logger: Callable[[LogCategory, dict[str, Any], int], None]
     ) -> None:
@@ -152,7 +153,7 @@ class TrainingIOHandler:
         if self._local_model_output_dir is None:
             return
 
-        _logger.debug("Saving/uploading dataset info...")
+        logger.debug("Saving/uploading dataset info...")
 
         start_time = time.perf_counter()
         local_json = self._local_model_output_dir / DATASET_INFO_FILENAME
@@ -161,7 +162,7 @@ class TrainingIOHandler:
         if self._data_upload_fun is not None:
             self._data_upload_fun(local_json)
 
-        _logger.debug(
+        logger.debug(
             "Dataset info was saved and possibly uploaded in %.2f sec.",
             time.perf_counter() - start_time,
         )
@@ -178,7 +179,7 @@ class TrainingIOHandler:
         if self._local_model_output_dir is None:
             return
 
-        _logger.info("Saving checkpoint at epoch %s...", epoch_number)
+        logger.info("Saving checkpoint at epoch %s...", epoch_number)
 
         if self._future is not None:
             self._future.result()
@@ -188,7 +189,7 @@ class TrainingIOHandler:
 
         if self._data_upload_fun is not None:
             self.ckpt_manager.wait_until_finished()
-            _logger.info("Uploading checkpoint at epoch %s...", epoch_number)
+            logger.info("Uploading checkpoint at epoch %s...", epoch_number)
             self._future = self._data_upload_fun(self.config.local_model_output_dir)
 
     def restore_training_state(self, training_state: TrainingState) -> TrainingState:
@@ -222,7 +223,7 @@ class TrainingIOHandler:
         if epoch_to_restore is None:
             epoch_to_restore = self.ckpt_manager.latest_step()
 
-        _logger.info("Restoring checkpoint from epoch %s.", epoch_to_restore)
+        logger.info("Restoring checkpoint from epoch %s.", epoch_to_restore)
         with single_host_jax_and_orbax():
             abstract_state = jax.tree_util.tree_map(
                 ocp.utils.to_shape_dtype_struct,
@@ -234,14 +235,18 @@ class TrainingIOHandler:
             )
 
         if self.config.restore_optimizer_state:
-            _logger.debug("Restoring params and optimizer state.")
+            logger.debug("Restoring params and optimizer state.")
             nnx.update(training_state, ckpt)
         else:
-            _logger.debug("Restoring params, resetting optimizer state.")
-            ckpt = {"predictor": ckpt["predictor"]}
+            logger.debug("Restoring params, resetting optimizer state.")
+            ckpt = {
+                "predictor": ckpt["predictor"],
+                "num_steps": ckpt["num_steps"],
+                "acc_steps": ckpt["acc_steps"],
+            }
             nnx.update(training_state, ckpt)
 
-        _logger.debug(
+        logger.debug(
             "Checkpoint was restored in %.2f sec.", time.perf_counter() - start_time
         )
 
@@ -296,9 +301,9 @@ class TrainingIOHandler:
             )
 
         if self.config.clear_previous_checkpoints:
-            _logger.debug("Deleting local checkpointing directory...")
+            logger.debug("Deleting local checkpointing directory...")
             shutil.rmtree(self._local_model_output_dir)
         elif self.config.restore_checkpoint_if_exists:
-            _logger.debug(
+            logger.debug(
                 "Checkpointing directory exists locally and will be reused."
             )

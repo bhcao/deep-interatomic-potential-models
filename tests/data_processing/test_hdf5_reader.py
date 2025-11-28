@@ -21,10 +21,10 @@ import numpy as np
 import pytest
 
 from dipm.data.chemical_system import ChemicalSystem
-from dipm.data.chemical_datasets.hdf5_reader import Hdf5Reader
-from dipm.data.configs import ChemicalDatasetsConfig, GraphDatasetBuilderConfig
+from dipm.data.chemical_datasets.utils import _update_atomic_species, AtomicNumberTable
+from dipm.data.chemical_datasets.hdf5_dataset import Hdf5Dataset
+from dipm.data.configs import GraphDatasetBuilderConfig
 from dipm.data.graph_dataset_builder import (
-    DatasetsHaveNotBeenProcessedError,
     GraphDataset,
     GraphDatasetBuilder,
     PrefetchIterator,
@@ -35,28 +35,21 @@ SPICE_SMALL_HDF5_PATH = DATA_DIR / "spice2-1000_429_md_0-1.hdf5"
 
 
 @pytest.mark.parametrize("train_num_to_load", [None, 1])
-def test_hdf5_reading_works_correctly_with_two_hdf5s(train_num_to_load):
-    reader_config = ChemicalDatasetsConfig(
-        train_dataset_paths=[
-            SPICE_SMALL_HDF5_PATH.resolve(),
-            SPICE_SMALL_HDF5_PATH.resolve(),
-        ],
-        valid_dataset_paths=None,
-        test_dataset_paths=None,
-        train_num_to_load=train_num_to_load,
-        valid_num_to_load=None,
-        test_num_to_load=None,
-    )
-    reader = Hdf5Reader(config=reader_config)
-    train_systems, valid_systems, test_systems = reader.load()
-
-    assert len(valid_systems) == 0
-    assert len(test_systems) == 0
-
+def test_hdf5_reading_works_correctly(train_num_to_load):
+    reader = Hdf5Dataset(SPICE_SMALL_HDF5_PATH.resolve())
     if train_num_to_load is None:
+        train_systems = reader[:]
         train_num_to_load = 2
-    # because from each hdf5 file will load train_num_to_load rows
-    assert len(train_systems) == train_num_to_load * 2
+    else:
+        train_systems = reader[:train_num_to_load]
+    reader.release()
+
+    z_table = AtomicNumberTable(
+        sorted(set(np.concatenate([ts.atomic_numbers for ts in train_systems])))
+    )
+    _update_atomic_species(train_systems, z_table)
+
+    assert len(train_systems) == train_num_to_load
 
     for system in train_systems:
         assert isinstance(system, ChemicalSystem)
@@ -79,14 +72,6 @@ def test_builder_works_correctly(use_formation_energies):
     max_n_node = 30
     max_n_edge = 90
     graph_cutoff_angstrom = 5.0
-    reader_config = ChemicalDatasetsConfig(
-        train_dataset_paths=[SPICE_SMALL_HDF5_PATH.resolve()],
-        valid_dataset_paths=None,
-        test_dataset_paths=None,
-        train_num_to_load=n_examples,
-        valid_num_to_load=None,
-        test_num_to_load=None,
-    )
     builder_config = GraphDatasetBuilderConfig(
         graph_cutoff_angstrom=graph_cutoff_angstrom,
         use_formation_energies=use_formation_energies,
@@ -96,13 +81,8 @@ def test_builder_works_correctly(use_formation_energies):
         num_batch_prefetch=1,
         batch_prefetch_num_devices=1,
     )
-    reader = Hdf5Reader(config=reader_config)
-    builder = GraphDatasetBuilder(reader, builder_config)
-
-    with pytest.raises(DatasetsHaveNotBeenProcessedError):
-        dataset_info = builder.dataset_info
-    with pytest.raises(DatasetsHaveNotBeenProcessedError):
-        splits = builder.get_splits()
+    reader = Hdf5Dataset(SPICE_SMALL_HDF5_PATH.resolve())
+    builder = GraphDatasetBuilder([reader, None, None], builder_config)
 
     builder.prepare_datasets()
     splits = builder.get_splits()

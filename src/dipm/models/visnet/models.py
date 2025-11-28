@@ -26,6 +26,8 @@
 # You should have received a copy of the GNU Lesser General Public License along
 # with this program. If not, see <https://www.gnu.org/licenses/>.
 
+import re
+
 import e3nn_jax as e3nn
 import jax
 import jax.numpy as jnp
@@ -50,7 +52,6 @@ from dipm.models.visnet.blocks import (
 )
 from dipm.models.visnet.config import VisnetConfig
 from dipm.utils.safe_norm import safe_norm
-from dipm.typing import get_dtype
 
 
 class Visnet(ForceModel):
@@ -74,6 +75,7 @@ class Visnet(ForceModel):
 
     Config = VisnetConfig
     config: VisnetConfig
+    embedding_layer_regexp = re.compile(r"\.(node_)?embedding\.embedding$")
 
     def __init__(
         self,
@@ -86,14 +88,10 @@ class Visnet(ForceModel):
         if rngs is None:
             rngs = nnx.Rngs(42)
         super().__init__(config, dataset_info, dtype=dtype)
-        dtype = self.dtype
-        param_dtype = get_dtype(self.config.param_dtype)
 
         r_max = self.dataset_info.cutoff_distance_angstrom
 
-        num_species = self.config.num_species
-        if num_species is None:
-            num_species = len(self.dataset_info.atomic_energies_map)
+        num_species = len(self.dataset_info.atomic_energies_map)
 
         visnet_kwargs = dict(
             lmax=self.config.l_max,
@@ -112,8 +110,8 @@ class Visnet(ForceModel):
 
         self.visnet_model = VisnetBlock(
             **visnet_kwargs,
-            dtype=dtype,
-            param_dtype=param_dtype,
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
             rngs=rngs
         )
 
@@ -122,12 +120,12 @@ class Visnet(ForceModel):
             self.config.num_channels,
             self.config.num_channels,
             activation=self.config.activation,
-            dtype=dtype,
-            param_dtype=param_dtype,
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
             rngs=rngs,
         )
         self.atomic_energies = nnx.Cache(get_atomic_energies(
-            self.dataset_info, self.config.atomic_energies, num_species, dtype=dtype
+            self.dataset_info, self.config.atomic_energies, num_species, dtype=self.dtype
         ))
 
     def __call__(
@@ -136,8 +134,7 @@ class Visnet(ForceModel):
         node_species: jax.Array,
         senders: jax.Array,
         receivers: jax.Array,
-        _n_node: jax.Array, # Nel version of pyg.Data.batch, not used
-        _rngs: nnx.Rngs | None = None, # Rngs for dropout, None for eval, not used
+        **_kwargs,
     ) -> jax.Array:
 
         node_feats, vector_feats = self.visnet_model(

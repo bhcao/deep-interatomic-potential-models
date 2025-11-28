@@ -25,6 +25,7 @@ from safetensors.flax import save_file, safe_open
 
 from dipm.data import DatasetInfo
 from dipm.models import ForceFieldPredictor, KNOWN_MODELS
+from dipm.models.force_model import ForceModel
 
 PARAMETER_MODULE_DELIMITER = "."
 
@@ -72,12 +73,64 @@ def _key2tuple(key: str) -> tuple:
     return tuple(key_sep)
 
 
+def _drop_elements_from_dataset_info_and_params(
+    dataset_info: DatasetInfo,
+    params_raw: dict,
+    model_type: Type[ForceModel],
+    elements_to_drop: set[int],
+):
+    atomic_energies_map = {}
+    index_to_keep = []
+    for i, k in enumerate(sorted(dataset_info.atomic_energies_map)):
+        if k in elements_to_drop:
+            continue
+        atomic_energies_map[k] = dataset_info.atomic_energies_map[k]
+        index_to_keep.append(i)
+    index_to_keep = jnp.array(index_to_keep)
+
+    # update parameters
+    original_num_species = len(dataset_info.atomic_energies_map)
+    for k in list(params_raw.keys()):
+        if model_type.embedding_layer_regexp.search(k):
+            if len(params_raw[k]) != original_num_species:
+                raise ValueError(
+                    f"Shape of parameter {k} is mismatched. Expected {original_num_species},"
+                    f" got {len(params_raw[k])}."
+                )
+            params_raw[k] = params_raw[k][index_to_keep]
+    dataset_info.atomic_energies_map = atomic_energies_map
+
+
+def _check_param_matches_and_drop_extra(
+    params_raw: dict,
+    model: ForceModel,
+    strict: bool,
+):
+    state_dict = dict(nnx.to_flat_state(nnx.state(model, [nnx.Param, nnx.BatchStat])))
+    if strict:
+        for k, v in state_dict.items():
+            if k not in params_raw:
+                raise ValueError(f"Parameter {k} is missing from the saved file.")
+            if v.shape != params_raw[k].shape:
+                raise ValueError(f"Shape of parameter {k} is mismatched. Expected {v.shape}, "
+                                 f"got {params_raw[k].shape}.")
+        for k in params_raw:
+            if k not in state_dict:
+                raise ValueError(f"Extra parameter {k} is present in the saved file.")
+    else:
+        # remove extra or it will cause error when loading
+        for k in list(params_raw.keys()):
+            if k not in state_dict:
+                del params_raw[k]
+
+
 def load_model(
     load_path: str | os.PathLike,
-    model_type: Type[nnx.Module] | None = None,
+    model_type: Type[ForceModel] | None = None,
     dtype: Dtype | None = None,
     drop_force_head: bool = True,
     strict: bool = True,
+    elements_to_drop: set[int] | None = None,
 ) -> ForceFieldPredictor:
     """Loads a model from a safetensors file and returns it wrapped as a `ForceFieldPredictor`.
 
@@ -88,10 +141,12 @@ def load_model(
             and inferred from the saved metadata. Otherwise, it must be provided.
         dtype (optional): The dtype in computations. If not provided, it will be the same as the
             the parameters dtype.
-        drop_force_head (optional): If Ture, the head of the forces will be dropped if it exists
+        drop_force_head (optional): If True, the head of the forces will be dropped if it exists
             in the saved model. Default is ``True`` because it is not recommended to use the head
             of the forces in inferece.
         strict (optional): If True, raises an error if the parameters name and shape are mismatched.
+        elements_to_drop (optional): If provided, the elements in this set will be dropped from
+            the loaded model.
 
     Returns:
         The loaded model wrapped
@@ -124,39 +179,27 @@ def load_model(
     model_config = model_type.Config(**hyperparams_raw["config"])
 
     # drop forces head if requested
-    if drop_force_head and hasattr(model_config, "force_head") and model_config.force_head:
-        prefix = model_type.force_head_prefix
+    if drop_force_head and model_type.force_head_prefix is not None and model_config.force_head:
+        prefix = model_type.force_head_prefix + '.'
         for k in list(params_raw.keys()):
             if k.startswith(prefix):
                 del params_raw[k]
         model_config.force_head = False
         logger.info("Forces head has been dropped from the loaded model.")
 
+    # drop elements if requested
+    dataset_info = DatasetInfo(**hyperparams_raw["dataset_info"])
+    if elements_to_drop is not None:
+        _drop_elements_from_dataset_info_and_params(
+            dataset_info, params_raw, model_type, elements_to_drop
+        )
+
     params_raw = {_key2tuple(k): v for k, v in params_raw.items()}
     params = unflatten_mapping(params_raw)
 
-    model = model_type(
-        config=model_config,
-        dataset_info=DatasetInfo(**hyperparams_raw["dataset_info"]),
-        dtype=dtype,
-    )
+    model = model_type(config=model_config, dataset_info=dataset_info, dtype=dtype)
 
-    state_dict = dict(nnx.to_flat_state(nnx.state(model, [nnx.Param, nnx.BatchStat])))
-    if strict:
-        for k, v in state_dict.items():
-            if k not in params_raw:
-                raise ValueError(f"Parameter {k} is missing from the saved file.")
-            if v.shape != params_raw[k].shape:
-                raise ValueError(f"Shape of parameter {k} is mismatched. Expected {v.shape}, "
-                                 f"got {params_raw[k].shape}.")
-        for k in params_raw:
-            if k not in state_dict:
-                raise ValueError(f"Extra parameter {k} is present in the saved file.")
-    else:
-        # remove extra or it will cause error when loading
-        for k in list(params_raw.keys()):
-            if k not in state_dict:
-                del params_raw[k]
+    _check_param_matches_and_drop_extra(params_raw, model, strict)
 
     # load parameters
     graphdef, state = nnx.split(model)

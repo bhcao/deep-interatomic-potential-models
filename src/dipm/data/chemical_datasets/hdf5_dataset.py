@@ -37,7 +37,7 @@ def _unpack_value(value):
 class Hdf5Dataset(Dataset):
     """Loads data from a single hdf5 file."""
 
-    def __init__(self, file_path: os.PathLike, shuffle: bool = False):
+    def __init__(self, file_path: os.PathLike, shuffle: bool = False, task: int | None = None):
         self.file_path = file_path
         with h5py.File(self.file_path, "r") as f:
             batch_key = list(f.keys())[0]
@@ -46,6 +46,7 @@ class Hdf5Dataset(Dataset):
         self._file = None # lazy load for multiprocessing safety
         self.shuffle = shuffle
         self.post_process_fn = None
+        self.task = task
         if self.shuffle:
             self.indices = np.random.permutation(self.length)
 
@@ -88,6 +89,22 @@ class Hdf5Dataset(Dataset):
             _unpack_value(subgrp["properties"]["stress"][()])
             if "stress" in subgrp["properties"] else None
         )
+        charges = (
+            _unpack_value(subgrp["properties"]["charges"][()])
+            if "charges" in subgrp["properties"] else None
+        )
+        total_charge = (
+            _unpack_value(subgrp["properties"]["total_charge"][()])
+            if "total_charge" in subgrp["properties"] else None
+        )
+        total_spin = (
+            _unpack_value(subgrp["properties"]["total_spin"][()])
+            if "total_spin" in subgrp["properties"] else None
+        )
+        dipole = (
+            _unpack_value(subgrp["properties"]["dipole"][()])
+            if "dipole" in subgrp["properties"] else None
+        )
 
         pbc = _unpack_value(subgrp["pbc"][()])
         cell = _unpack_value(subgrp["cell"][()])
@@ -105,6 +122,11 @@ class Hdf5Dataset(Dataset):
             cell=cell if cell is not None else DEFAULT_CELL,
             pbc=pbc if pbc is not None else DEFAULT_PBC,
             weight=DEFAULT_WEIGHT,
+            atomic_charges=charges,
+            charge=total_charge,
+            spin=total_spin,
+            dipole=dipole,
+            task=self.task,
         )
         if self.post_process_fn is not None:
             system = self.post_process_fn(system)
@@ -133,6 +155,17 @@ def _get_num_to_load(num_to_load, dataset_size):
     return num_to_load
 
 
+def _dataset_iterator(dataset_paths: list | dict, task_list: list[str] | None):
+    if isinstance(dataset_paths, list):
+        for path in dataset_paths:
+            yield Hdf5Dataset(path, task=None)
+        return
+
+    for task, paths in dataset_paths.values():
+        for path in paths:
+            yield Hdf5Dataset(path, task=task_list.index(task))
+
+
 def create_datasets(
     config: ChemicalDatasetsConfig
 ) -> tuple[ConcatDataset, ConcatDataset | None, ConcatDataset | None]:
@@ -146,8 +179,13 @@ def create_datasets(
         A tuple of training, validation (if provided), and test dataset (if provided).
     """
 
+    task_list = (
+        list(config.train_dataset_paths.keys())
+        if isinstance(config.train_dataset_paths, dict) else None
+    )
+
     train_datasets = ConcatDataset([
-        Hdf5Dataset(ds_path) for ds_path in config.train_dataset_paths
+        *_dataset_iterator(config.train_dataset_paths, task_list)
     ], shuffle=config.shuffle, parallel=config.parallel)
 
     if config.dataset_splits is not None:
@@ -184,7 +222,7 @@ def create_datasets(
     valid_datasets = None
     if config.valid_dataset_paths is not None:
         valid_datasets = ConcatDataset([
-            Hdf5Dataset(ds_path) for ds_path in config.valid_dataset_paths
+            *_dataset_iterator(config.valid_dataset_paths, task_list)
         ], shuffle=config.shuffle, parallel=config.parallel)
         if config.valid_num_to_load is not None:
             num_to_load = _get_num_to_load(
@@ -195,7 +233,7 @@ def create_datasets(
     test_datasets = None
     if config.test_dataset_paths is not None:
         test_datasets = ConcatDataset([
-            Hdf5Dataset(ds_path) for ds_path in config.test_dataset_paths
+            *_dataset_iterator(config.test_dataset_paths, task_list)
         ], shuffle=config.shuffle, parallel=config.parallel)
         if config.test_num_to_load is not None:
             num_to_load = _get_num_to_load(

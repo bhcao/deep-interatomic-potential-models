@@ -56,6 +56,9 @@ def create_graph_from_chemical_system(
 
     cell = np.zeros((3, 3)) if chemical_system.cell is None else chemical_system.cell
     energy = np.array(0.0 if chemical_system.energy is None else chemical_system.energy)
+    charge = np.array(0 if chemical_system.charge is None else chemical_system.charge)
+    spin = np.array(0 if chemical_system.spin is None else chemical_system.spin)
+    task = np.array(0 if chemical_system.task is None else chemical_system.task)
 
     graph = jraph.GraphsTuple(
         nodes=GraphNodes(
@@ -71,6 +74,9 @@ def create_graph_from_chemical_system(
                 energy=energy,
                 stress=chemical_system.stress,
                 weight=np.asarray(chemical_system.weight),
+                charge=charge,
+                spin=spin,
+                task=task,
             ),
         ),
         receivers=receivers,

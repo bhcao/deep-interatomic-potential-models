@@ -18,7 +18,24 @@ import pydantic
 from pydantic import field_validator, model_validator
 from typing_extensions import Self
 
-from dipm.typing import PositiveInt, PositiveFloat, Proportion, PathLike
+from dipm.typing import PositiveInt, PositiveFloat, Proportion
+
+
+def _expand_path_to_list(paths) -> list[Path]:
+    if not isinstance(paths, (list, tuple)):
+        paths = [paths]
+
+    expanded = []
+    for path in paths:
+        path = Path(path).absolute()
+        if path.is_dir():
+            for file in path.glob("*.hdf5"):
+                expanded.append(file)
+            for file in path.glob("*.h5"):
+                expanded.append(file)
+        else:
+            expanded.append(path)
+    return expanded
 
 
 class ChemicalDatasetsConfig(pydantic.BaseModel):
@@ -26,7 +43,8 @@ class ChemicalDatasetsConfig(pydantic.BaseModel):
     `ChemicalSystem`s.
 
     When directories are given in `*_dataset_paths`, files ending with `.hdf5` or `.h5`
-    in those directories will be automatically detected and added.
+    in those directories will be automatically detected and added. If dict is given,
+    the keys will be used as task/dataset names and the values as paths.
 
     In `dataset_splits` and `*_num_to_load`, if a float is given, it will be interpreted as
     proportion. If an integer is given, it will be interpreted as number of data points.
@@ -62,9 +80,9 @@ class ChemicalDatasetsConfig(pydantic.BaseModel):
                            If multiple dataset paths are given, this limit will apply in total.
     """
 
-    train_dataset_paths: PathLike | list[PathLike]
-    valid_dataset_paths: PathLike | list[PathLike] | None = None
-    test_dataset_paths: PathLike | list[PathLike] | None = None
+    train_dataset_paths: list[Path] | dict[str, list[Path]]
+    valid_dataset_paths: list[Path] | dict[str, list[Path]] | None = None
+    test_dataset_paths: list[Path] | dict[str, list[Path]] | None = None
 
     dataset_splits: (
         tuple[PositiveInt, PositiveInt, PositiveInt] |
@@ -82,35 +100,20 @@ class ChemicalDatasetsConfig(pydantic.BaseModel):
         "train_dataset_paths",
         "valid_dataset_paths",
         "test_dataset_paths",
-        mode="after",
+        mode="before",
     )
     @classmethod
-    def expand_path_to_list(
-        cls, value: Path | list[Path] | None
-    ) -> list[Path]:
+    def expand_path_to_dict(cls, value) -> list[Path] | dict[str, list[Path]] | None:
         """Converts a single path to a list of paths and expands directories."""
         if value is None:
-            return []
+            return None
 
-        if isinstance(value, Path):
-            paths = [value]
-        elif isinstance(value, list):
-            paths = value
-        else:
-            raise ValueError(
-                f"*_dataset_paths must be a string, Path, or a list of them, "
-                f"but was {type(value)} - {value}"
-            )
+        if not isinstance(value, dict):
+            return _expand_path_to_list(value)
 
-        expanded_paths = []
-        for path in paths:
-            if path.is_dir():
-                for file in path.glob("*.hdf5"):
-                    expanded_paths.append(file)
-                for file in path.glob("*.h5"):
-                    expanded_paths.append(file)
-            else:
-                expanded_paths.append(path)
+        expanded_paths = {}
+        for key, paths in value.items():
+            expanded_paths[key] = _expand_path_to_list(paths)
         return expanded_paths
 
 
@@ -118,7 +121,37 @@ class ChemicalDatasetsConfig(pydantic.BaseModel):
     def validate_dataset_paths(self) -> Self:
         """Validates the dataset paths and splits."""
 
-        if self.train_dataset_paths == []:
+        if isinstance(self.train_dataset_paths, dict):
+            dataset_names = set(self.train_dataset_paths.keys())
+            if isinstance(self.valid_dataset_paths, list) or (
+                self.valid_dataset_paths is not None and
+                set(self.valid_dataset_paths.keys()) != dataset_names
+            ):
+                raise ValueError(
+                    "Your `train_dataset_paths` is a dictionary, but `valid_dataset_paths` "
+                    "is a list or has different keys."
+                )
+            if isinstance(self.test_dataset_paths, list) or (
+                self.test_dataset_paths is not None and
+                set(self.test_dataset_paths.keys()) != dataset_names
+            ):
+                raise ValueError(
+                    "Your `train_dataset_paths` is a dictionary, but `test_dataset_paths` "
+                    "is a list or has different keys."
+                )
+        else:
+            if isinstance(self.valid_dataset_paths, dict):
+                raise ValueError(
+                    "Your `train_dataset_paths` is a list, but `valid_dataset_paths` "
+                    "is a dictionary."
+                )
+            if isinstance(self.test_dataset_paths, dict):
+                raise ValueError(
+                    "Your `train_dataset_paths` is a list, but `test_dataset_paths` "
+                    "is a dictionary."
+                )
+
+        if self.train_dataset_paths in [[], {}]:
             raise ValueError("Train dataset paths should contain at least one path")
 
         if self.dataset_splits is not None:
@@ -168,6 +201,10 @@ class GraphDatasetBuilderConfig(pydantic.BaseModel):
                                 Default is ``False``. Make sure that if you set this
                                 to ``True``, the models assume ``"zero"`` atomic
                                 energies as can be set in the model hyperparameters.
+        drop_unseen_elements: If ``dataset_info`` is provided, whether to drop unseen
+                              elements in the training dataset from the ``dataset_info``
+                              atomic numbers table. If ``True``, remember to remove unused
+                              embeddings from the model by yourself. Default is ``False``.
     """
 
     graph_cutoff_angstrom: PositiveFloat = 5.0
@@ -180,3 +217,4 @@ class GraphDatasetBuilderConfig(pydantic.BaseModel):
     batch_prefetch_num_devices: PositiveInt = 1
 
     use_formation_energies: bool = False
+    drop_unseen_elements: bool = False

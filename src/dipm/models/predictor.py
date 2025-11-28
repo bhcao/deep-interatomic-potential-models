@@ -21,11 +21,10 @@ import jax.numpy as jnp
 from flax import nnx
 import jraph
 import numpy as np
-from pydantic import BaseModel
 
 from dipm.data import DatasetInfo
 from dipm.data.helpers.edge_vectors import get_edge_relative_vectors
-from dipm.models.force_model import ForceModel, PrecallInterface
+from dipm.models.force_model import ForceModel, ForceModelConfig, PrecallInterface
 from dipm.typing import Prediction
 
 RelativeEdgeVectors: TypeAlias = np.ndarray
@@ -94,7 +93,7 @@ class ForceFieldPredictor(nnx.Module):
         graph = jax.tree.map(cast_jraph, graph)
 
         strains = jnp.zeros_like(graph.globals.cell)
-        if self.force_model.predict_forces:
+        if self.force_model.config.force_head:
             if self.predict_stress:
                 pseudo_stress, prediction = nnx.grad(
                     self._compute_energy_and_forces, argnums=1, has_aux=True
@@ -117,12 +116,30 @@ class ForceFieldPredictor(nnx.Module):
         if not self.predict_stress:
             return prediction
 
+        # pylint: disable=used-before-assignment
         stress_results = self._compute_stress_results(graph, pseudo_stress)
         return replace(
             prediction,
             stress=stress_results.stress,
             pressure=stress_results.pressure,
         )
+
+    def precall(
+        self, graph: jraph.GraphsTuple, rngs: nnx.Rngs | None = None
+    ) -> dict:
+        """Pre-call the force model to obtain a context dictionary."""
+        if not isinstance(self.force_model, PrecallInterface):
+            return {}
+
+        ctx = self.force_model.precall(
+            node_species=graph.nodes.species,
+            charge=graph.globals.charge,
+            spin=graph.globals.spin,
+            n_node=graph.n_node,
+            task=graph.globals.task,
+            rngs=rngs,
+        )
+        return ctx
 
     @staticmethod
     def _compute_stress_results(
@@ -165,7 +182,7 @@ class ForceFieldPredictor(nnx.Module):
         node_features = self._compute_node_features(positions, strains, graph, rngs, ctx)
         padding_mask = jraph.get_node_padding_mask(graph)
 
-        if self.force_model.predict_forces:
+        if self.force_model.config.force_head:
             node_energies, forces = node_features
             forces = forces * padding_mask[:, None]
         else:
@@ -223,37 +240,14 @@ class ForceFieldPredictor(nnx.Module):
                 n_edge=graph.n_edge,
             )
 
+        kwargs = {"n_node": graph.n_node, "rngs": rngs}
         if isinstance(self.force_model, PrecallInterface):
             if ctx is None:
-                if hasattr(graph.globals, 'charge'):
-                    charge = graph.globals.charge
-                else:
-                    charge = jnp.zeros_like(graph.n_node, dtype=jnp.int32)
-                if hasattr(graph.globals,'spin'):
-                    spin = graph.globals.spin
-                else:
-                    spin = jnp.zeros_like(graph.n_node, dtype=jnp.int32)
-                if hasattr(graph.globals, 'dataset'):
-                    dataset = graph.globals.dataset
-                else:
-                    dataset = jnp.zeros_like(graph.n_node, dtype=jnp.int32)
-
-                ctx = self.force_model.precall(
-                    node_species=graph.nodes.species,
-                    charge=charge,
-                    spin=spin,
-                    n_node=graph.n_node,
-                    dataset=dataset,
-                    rngs=rngs,
-                )
-            node_features = self.force_model(
-                vectors, graph.nodes.species, graph.senders, graph.receivers, graph.n_node,
-                rngs, ctx=ctx
-            )
-        else:
-            node_features = self.force_model(
-                vectors, graph.nodes.species, graph.senders, graph.receivers, graph.n_node, rngs
-            )  # [n_nodes, ]
+                ctx = self.precall(graph, rngs)
+            kwargs["ctx"] = ctx
+        node_features = self.force_model(
+            vectors, graph.nodes.species, graph.senders, graph.receivers, **kwargs
+        )  # [n_nodes, ]
         return node_features
 
     def _apply_strains(
@@ -303,7 +297,7 @@ class ForceFieldPredictor(nnx.Module):
         return set(dataset_info.atomic_energies_map.keys())
 
     @property
-    def config(self) -> BaseModel:
+    def config(self) -> ForceModelConfig:
         """Return configuration of the underlying MLIP model."""
         return self.force_model.config
 

@@ -12,6 +12,8 @@
 # You should have received a copy of the GNU Lesser General Public License along
 # with this program. If not, see <https://www.gnu.org/licenses/>.
 
+import re
+
 import jax
 import jax.numpy as jnp
 from flax import nnx
@@ -29,7 +31,6 @@ from dipm.models.force_model import ForceModel
 from dipm.models.atomic_energies import get_atomic_energies
 from dipm.models.liten.config import LiTENConfig
 from dipm.utils.safe_norm import safe_norm
-from dipm.typing import get_dtype
 
 
 class LiTEN(ForceModel):
@@ -53,6 +54,7 @@ class LiTEN(ForceModel):
 
     Config = LiTENConfig
     config: LiTENConfig
+    embedding_layer_regexp = re.compile(r"\.node_embedding\.embedding$")
 
     def __init__(
         self,
@@ -65,14 +67,10 @@ class LiTEN(ForceModel):
         if rngs is None:
             rngs = nnx.Rngs(42)
         super().__init__(config, dataset_info, dtype=dtype)
-        dtype = self.dtype
-        param_dtype = get_dtype(self.config.param_dtype)
 
         r_max = self.dataset_info.cutoff_distance_angstrom
 
-        num_species = self.config.num_species
-        if num_species is None:
-            num_species = len(self.dataset_info.atomic_energies_map)
+        num_species = len(self.dataset_info.atomic_energies_map)
 
         liten_kwargs = dict(
             num_heads=self.config.num_heads,
@@ -88,12 +86,12 @@ class LiTEN(ForceModel):
 
         self.liten_block = LiTENBlock(
             **liten_kwargs,
-            dtype=dtype,
-            param_dtype=param_dtype,
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
             rngs=rngs
         )
         self.atomic_energies = nnx.Cache(get_atomic_energies(
-            self.dataset_info, self.config.atomic_energies, num_species, dtype=dtype
+            self.dataset_info, self.config.atomic_energies, num_species, dtype=self.dtype
         ))
 
     def __call__(
@@ -102,8 +100,7 @@ class LiTEN(ForceModel):
         node_species: jax.Array,
         senders: jax.Array,
         receivers: jax.Array,
-        _n_node: jax.Array, # Nel version of pyg.Data.batch, not used
-        _rngs: nnx.Rngs | None = None, # Rngs for dropout, None for eval, not used
+        **_kwargs,
     ) -> jax.Array:
         # edge connect
         edge_distances = safe_norm(edge_vectors, axis=-1) # [n_edges]
@@ -237,7 +234,7 @@ class LiTENLayer(nnx.Module):
 
         key = rngs.params()
         self.alpha = nnx.Param(
-            initializers.xavier_normal()(key, (1, num_heads, self.head_dim), param_dtype)
+            initializers.xavier_uniform()(key, (1, num_heads, self.head_dim), param_dtype)
         )
 
         self.cutoff_fn = CosineCutoff(cutoff)

@@ -12,23 +12,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import TypeAlias
-
 import e3nn_jax as e3nn
 import flax
+from flax import nnx
 import jax.numpy as np
-import jax.random as random
 
 from dipm.models.mace.symmetric_contraction import SymmetricContraction
-
-# is there a jax/flax PyTree type?
-Params: TypeAlias = dict
 
 
 class TestSymmetricContraction:
 
     # test parameters
-    key = random.key(123)
+    rngs = nnx.Rngs(123)
     batch_size = 32
     irreps_in = "2x0e + 2x1o + 2x2e"
     # module arguments
@@ -36,33 +31,29 @@ class TestSymmetricContraction:
     keep_irrep_out = "0e + 1o + 2e"
     num_species = 4
 
-    def module_inputs(self) -> tuple[np.ndarray, np.ndarray]:
+    def module_inputs(self) -> tuple[e3nn.IrrepsArray, np.ndarray]:
         """Prepare module inputs: (node_feats, species)."""
         nb = self.batch_size
         rep_in = e3nn.Irreps(self.irreps_in)
-        node_feats = random.normal(self.key, (nb, rep_in.dim))
-        species = random.randint(self.key, (nb,), 0, self.num_species)
+        node_feats = self.rngs.normal((nb, rep_in.dim))
+        species = self.rngs.randint((nb,), 0, self.num_species)
         return (e3nn.IrrepsArray(rep_in, node_feats), species)
-
-    def module_params(self) -> Params:
-        """Prepare parameters."""
-        module = self.module()
-        inputs = self.module_inputs()
-        return module.init(self.key, *inputs)
 
     def module(self) -> flax.linen.Module:
         """Prepare module."""
         return SymmetricContraction(
+            self.batch_size,
+            self.irreps_in,
             self.correlation,
             self.keep_irrep_out,
             self.num_species,
+            rngs=self.rngs,
         )
 
     def test_symmetric_contraction(self):
         """Check that module runs without error."""
         module = self.module()
         inputs = self.module_inputs()
-        params = self.module_params()
-        out = module.apply(params, *inputs)
+        out = module(*inputs)
         print(out.irreps)
         assert out.array.shape[0] == self.batch_size

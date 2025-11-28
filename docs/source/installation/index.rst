@@ -36,7 +36,7 @@ critical bugs. Here is the installation commands:
 .. code-block:: bash
 
     pip install git+https://github.com/jax-md/jax-md.git
-    pip install -U dipm[md]
+    pip install "dipm[cuda,md]"
 
 DIPM-Cvt
 --------
@@ -47,7 +47,7 @@ This package can be installed via pip with all optional dependencies:
 
 .. code-block:: bash
 
-    pip install dipm-cvt[all]
+    pip install "dipm-cvt[all]"
 
 Typically, not all dependencies are needed. For example, if you don't want to convert model
 file or some LMDB datasets, there is no need to install PyTorch. Therefore, we provide options

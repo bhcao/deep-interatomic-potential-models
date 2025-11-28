@@ -17,6 +17,8 @@
 # You should have received a copy of the GNU Lesser General Public License along
 # with this program. If not, see <https://www.gnu.org/licenses/>.
 
+import re
+
 from e3nn_jax import scatter_mean
 import jax
 import jax.numpy as jnp
@@ -43,7 +45,7 @@ from dipm.layers.escn import (
 from dipm.models.force_model import ForceModel, PrecallInterface
 from dipm.models.atomic_energies import get_atomic_energies
 from dipm.models.uma.blocks import (
-    ChargeSpinDatasetEmbed,
+    ChargeSpinTaskEmbed,
     Edgewise,
     SpectralAtomwise,
     GridAtomwise,
@@ -52,7 +54,6 @@ from dipm.models.uma.blocks import (
 )
 from dipm.models.uma.config import UMAConfig
 from dipm.utils.safe_norm import safe_norm
-from dipm.typing import get_dtype
 
 
 class UMA(ForceModel, PrecallInterface):
@@ -75,6 +76,9 @@ class UMA(ForceModel, PrecallInterface):
     Config = UMAConfig
     config: UMAConfig
     force_head_prefix = "force_head"
+    embedding_layer_regexp = re.compile(
+        r"\.(composition|sphere|senders|receivers)_embedding\.embedding$"
+    )
 
     def __init__(
         self,
@@ -87,14 +91,10 @@ class UMA(ForceModel, PrecallInterface):
         if rngs is None:
             rngs = nnx.Rngs(42)
         super().__init__(config, dataset_info, dtype=dtype)
-        dtype = self.dtype
-        param_dtype = get_dtype(self.config.param_dtype)
 
         r_max = self.dataset_info.cutoff_distance_angstrom
 
-        num_species = self.config.num_species
-        if num_species is None:
-            num_species = len(self.dataset_info.atomic_energies_map)
+        num_species = len(self.dataset_info.atomic_energies_map)
 
         uma_kargs = dict(
             num_layers=self.config.num_layers,
@@ -113,11 +113,11 @@ class UMA(ForceModel, PrecallInterface):
             num_species=num_species,
         )
 
-        self.charge_spin_dataset_embed = ChargeSpinDatasetEmbed(
+        self.charge_spin_task_embed = ChargeSpinTaskEmbed(
             self.config.sphere_channels,
-            None if self.config.dataset_list is None else len(self.config.dataset_list),
-            dtype=dtype,
-            param_dtype=param_dtype,
+            None if self.config.task_list is None else len(self.config.task_list),
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
             rngs=rngs,
         )
 
@@ -126,7 +126,7 @@ class UMA(ForceModel, PrecallInterface):
                 router_channels = 2 * self.config.sphere_channels
                 self.composition_embedding = nnx.Embed(
                     num_species, self.config.sphere_channels,
-                    dtype=dtype, param_dtype=param_dtype, rngs=rngs
+                    dtype=self.dtype, param_dtype=self.param_dtype, rngs=rngs
                 )
             else:
                 router_channels = self.config.sphere_channels
@@ -134,13 +134,13 @@ class UMA(ForceModel, PrecallInterface):
 
             self.mole_router = nnx.Sequential(
                 nnx.Linear(router_channels, num_experts * 2,
-                           dtype=dtype, param_dtype=param_dtype, rngs=rngs),
+                           dtype=self.dtype, param_dtype=self.param_dtype, rngs=rngs),
                 nnx.silu,
                 nnx.Linear(num_experts * 2, num_experts * 2,
-                           dtype=dtype, param_dtype=param_dtype, rngs=rngs),
+                           dtype=self.dtype, param_dtype=self.param_dtype, rngs=rngs),
                 nnx.silu,
                 nnx.Linear(num_experts * 2, num_experts,
-                           dtype=dtype, param_dtype=param_dtype, rngs=rngs),
+                           dtype=self.dtype, param_dtype=self.param_dtype, rngs=rngs),
                 nnx.silu,
             )
 
@@ -148,35 +148,36 @@ class UMA(ForceModel, PrecallInterface):
 
         self.backbone = UMABlock(
             **uma_kargs,
-            dtype=dtype,
-            param_dtype=param_dtype,
+            dtype=self.dtype,
+            param_dtype=self.param_dtype,
             rngs=rngs
         )
 
         self.energy_head = nnx.Sequential(
             nnx.Linear(
                 self.config.sphere_channels, self.config.hidden_channels,
-                dtype=dtype, param_dtype=param_dtype, rngs=rngs
+                dtype=self.dtype, param_dtype=self.param_dtype, rngs=rngs
             ),
             nnx.silu,
             nnx.Linear(
                 self.config.hidden_channels, self.config.hidden_channels,
-                dtype=dtype, param_dtype=param_dtype, rngs=rngs
+                dtype=self.dtype, param_dtype=self.param_dtype, rngs=rngs
             ),
             nnx.silu,
             nnx.Linear(
-                self.config.hidden_channels, 1, dtype=dtype, param_dtype=param_dtype, rngs=rngs
+                self.config.hidden_channels, 1,
+                dtype=self.dtype, param_dtype=self.param_dtype, rngs=rngs
             ),
         )
 
-        if self.predict_forces:
+        if self.config.force_head:
             self.force_head = SO3LinearV2(
                 self.config.sphere_channels, 1, lmax=1,
-                dtype=dtype, param_dtype=param_dtype, rngs=rngs
+                dtype=self.dtype, param_dtype=self.param_dtype, rngs=rngs
             )
 
         self.atomic_energies = nnx.Cache(get_atomic_energies(
-            self.dataset_info, self.config.atomic_energies, num_species, dtype=dtype
+            self.dataset_info, self.config.atomic_energies, num_species, dtype=self.dtype
         ))
 
     # pylint: disable=arguments-differ
@@ -186,18 +187,18 @@ class UMA(ForceModel, PrecallInterface):
         charge: jax.Array, # [num_batch,]
         spin: jax.Array, # [num_batch,]
         n_node: jax.Array, # [num_batch,]
-        dataset: jax.Array | None = None,
+        task: jax.Array | None = None,
         rngs: nnx.Rngs | None = None,
         **_kwargs,
     ) -> dict:
-        if dataset is None:
-            if self.config.dataset_list is not None:
-                raise ValueError("Must provide `dataset` for `precall`.")
-            csd_mixed_emb = self.charge_spin_dataset_embed(charge, spin)
+        if task is None:
+            if self.config.task_list is not None:
+                raise ValueError("Must provide `task` for `precall`.")
+            csd_mixed_emb = self.charge_spin_task_embed(charge, spin)
         else:
-            csd_mixed_emb = self.charge_spin_dataset_embed(charge, spin, dataset)
+            csd_mixed_emb = self.charge_spin_task_embed(charge, spin, task)
 
-        # Just cache the csd_mixed_emb, no futher precall.
+        # Just cache the csd_mixed_emb, no further precall.
         if self.config.num_experts == 0:
             return {".": {"csd_mixed_emb": csd_mixed_emb}}
 
@@ -245,7 +246,7 @@ class UMA(ForceModel, PrecallInterface):
 
         node_energies += self.atomic_energies.value[node_species]  # [n_nodes, ]
 
-        if self.predict_forces:
+        if self.config.force_head:
             forces = self.force_head(node_feats[:, :4])[:, 1:4, 0]
             return node_energies, std * forces
 

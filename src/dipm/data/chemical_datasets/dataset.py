@@ -103,7 +103,7 @@ class _ParallelLoader:
     ) -> ChemicalSystem | list[list[ChemicalSystem]]:
         """Load data from the datasets in parallel."""
 
-        # single index, file handler is holded by the worker process
+        # single index, file handler is held by the worker process
         if isinstance(indices, int):
             self.queues_in[ds_indices].put(indices)
             return self.queues_out[ds_indices].get()

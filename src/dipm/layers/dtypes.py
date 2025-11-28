@@ -53,7 +53,7 @@ def canonicalize_dtype(
                 args_filtered.append(x.array)
                 if x._chunks is not None: # pylint: disable=protected-access
                     # pylint: disable=protected-access
-                    args_filtered.extend([chunck for chunck in x._chunks if chunck is not None])
+                    args_filtered.extend([chunk for chunk in x._chunks if chunk is not None])
             elif isinstance(x, list):
                 args_filtered.extend([jnp.asarray(y) for y in x if y is not None])
             elif x is not None:
@@ -76,10 +76,10 @@ def promote_dtype(args: T, /, *, dtype=None, inexact=True) -> T:
     All args are cast to the same dtype. See ``canonicalize_dtype`` for how
     this dtype is determined.
 
-    The behavior of promote_dtype is mostly a convinience wrapper around
+    The behavior of promote_dtype is mostly a convenience wrapper around
     ``jax.numpy.promote_types``. The differences being that it automatically casts
     all input to the inferred dtypes, allows inference to be overridden by a
-    forced dtype, and has an optional check to garantuee the resulting dtype is
+    forced dtype, and has an optional check to guarantee the resulting dtype is
     inexact.
 
     Args:

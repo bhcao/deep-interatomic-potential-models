@@ -133,6 +133,19 @@ def huber_loss_energy(graph: GraphsTuple, energy_pred: np.ndarray) -> np.ndarray
     )  # [n_graphs, ]
 
 
+def mean_absolute_error_energy(
+    graph: GraphsTuple, energy_pred: np.ndarray
+) -> np.ndarray:
+    energy_ref = graph.globals.energy  # [n_graphs, ]
+    if energy_ref is None:
+        # We null out the loss if the reference energy is not provided
+        energy_ref = jnp.zeros_like(energy_pred)
+        energy_pred = jnp.zeros_like(energy_pred)
+    return graph.globals.weight * jnp.abs(
+        safe_divide(energy_ref - energy_pred, graph.n_node)
+    )  # [n_graphs, ]
+
+
 def mean_squared_error_forces(
     graph: GraphsTuple, forces_pred: np.ndarray
 ) -> np.ndarray:
@@ -169,6 +182,22 @@ def adaptive_huber_loss_forces(
     )  # [n_graphs, ]
 
 
+def l2_mean_absolute_error_forces(
+    graph: GraphsTuple, forces_pred: np.ndarray
+) -> np.ndarray:
+    forces_ref = graph.nodes.forces  # [n_nodes, 3]
+    if forces_ref is None:
+        # We null out the loss if the reference forces are not provided
+        forces_ref = jnp.zeros_like(forces_pred)
+        forces_pred = jnp.zeros_like(forces_pred)
+    return graph.globals.weight * safe_divide(
+        _sum_nodes_of_the_same_graph(
+            graph, jnp.linalg.norm(forces_ref - forces_pred, axis=1)
+        ),
+        graph.n_node,
+    )  # [n_graphs, ]
+
+
 def mean_squared_error_stress(
     graph: GraphsTuple, stress_pred: np.ndarray
 ) -> np.ndarray:
@@ -195,6 +224,19 @@ def huber_loss_stress(graph: GraphsTuple, stress_pred: np.ndarray) -> np.ndarray
             delta=HUBER_LOSS_DEFAULT_DELTA,
         ),
         axis=(1, 2),
+    )  # [n_graphs, ]
+
+
+def l2_mean_absolute_error_stress(
+    graph: GraphsTuple, stress_pred: np.ndarray
+) -> np.ndarray:
+    stress_ref = graph.globals.stress  # [n_graphs, 3, 3]
+    if stress_ref is None:
+        # We null out the loss if the reference stress is not provided
+        stress_ref = jnp.zeros_like(stress_pred)
+        stress_pred = jnp.zeros_like(stress_pred)
+    return graph.globals.weight * jnp.linalg.norm(
+        stress_ref - stress_pred, axis=(1, 2)
     )  # [n_graphs, ]
 
 

@@ -1,6 +1,6 @@
 [project]
 name = "dipm"
-version = "0.0.4"
+version = "0.0.5"
 description = "Deep Interatomic Potential Models in JAX"
 license = "LGPL-3.0-or-later"
 license-files = [

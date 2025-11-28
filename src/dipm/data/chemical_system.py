@@ -24,6 +24,8 @@ AtomicNumbers: TypeAlias = np.ndarray  # [num_nodes]
 AtomicSpecies: TypeAlias = np.ndarray  # [num_nodes, num_features]
 Cell: TypeAlias = np.ndarray  # [3, 3]
 Stress: TypeAlias = np.ndarray  # [3, 3]
+AtomicCharges: TypeAlias = np.ndarray  # [num_nodes]
+Dipole: TypeAlias = np.ndarray  # [3]
 
 
 class ChemicalSystem(pydantic.BaseModel):
@@ -49,6 +51,11 @@ class ChemicalSystem(pydantic.BaseModel):
              that dimension.
         weight: A weighting factor for this configuration in the dataset, by default
                 set to 1.0.
+        atomic_charges: Optionally, the atomic charges of the system.
+        charge: Optionally, the total charge of the system.
+        spin: Optionally, the total spin of the system.
+        dipole: Optionally, the dipole moment of the system.
+        task: Optionally, the index of the task/dataset that the system belongs to.
     """
 
     model_config = pydantic.ConfigDict(arbitrary_types_allowed=True)
@@ -62,6 +69,11 @@ class ChemicalSystem(pydantic.BaseModel):
     cell: Cell | None = None
     pbc: tuple[bool, bool, bool] | None = None
     weight: float = 1.0  # weight of config in loss
+    atomic_charges: AtomicCharges | None = None
+    charge: int | None = None
+    spin: int | None = None
+    dipole: Dipole | None = None
+    task: int | None = None
 
     @pydantic.model_validator(mode="after")
     def validate_variable_shapes(self) -> Self:
@@ -79,6 +91,9 @@ class ChemicalSystem(pydantic.BaseModel):
         if self.forces is not None and self.forces.shape != (num_nodes, 3):
             raise ValueError("Forces have incompatible shape.")
 
+        if self.atomic_charges is not None and self.atomic_charges.shape != (num_nodes,):
+            raise ValueError("Atomic charges have incompatible shape.")
+
         return self
 
     @pydantic.field_validator("cell")
@@ -95,4 +110,12 @@ class ChemicalSystem(pydantic.BaseModel):
         """Validates that the stress has the correct shape."""
         if value is not None and value.shape != (3, 3):
             raise ValueError("Stress must be of shape 3x3.")
+        return value
+
+    @pydantic.field_validator("dipole")
+    @classmethod
+    def validate_dipole_shape(cls, value: Dipole | None) -> Dipole | None:
+        """Validates that the dipole has the correct shape."""
+        if value is not None and value.shape != (3,):
+            raise ValueError("Dipole must be of shape 3.")
         return value

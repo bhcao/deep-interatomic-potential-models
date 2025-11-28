@@ -67,7 +67,7 @@ For example, to create a force field that uses MACE, one can simply execute:
     force_field = ForceFieldPredictor(mace)
 
 Unlike `MLIP <https://github.com/instadeepai/mlip>`_, we use `flax.nnx` as our backend.
-It's a pytorch-like api without the need to seperate parameters from the model.
+It's a pytorch-like api without the need to separate parameters from the model.
 We recommend to visit the
 `flax nnx documentation <https://flax.readthedocs.io/en/stable/nnx_basics.html>`_ for more details.
 

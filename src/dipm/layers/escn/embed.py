@@ -58,7 +58,7 @@ class EdgeDegreeEmbedding(nnx.Module):
         self.sphere_channels = sphere_channels
 
         self.m_0_num_coefficients = mapping_coeffs.m_size[0]
-        self.m_all_num_coefficents = mapping_coeffs.num_coefficients
+        self.m_all_num_coefficients = mapping_coeffs.num_coefficients
 
         # Create edge scalar (invariant to rotations) features
         # Embedding function of the atomic numbers
@@ -131,7 +131,7 @@ class EdgeDegreeEmbedding(nnx.Module):
         edge_feats_m_pad = jnp.zeros(
             (
                 edge_attr.shape[0],
-                (self.m_all_num_coefficents - self.m_0_num_coefficients),
+                (self.m_all_num_coefficients - self.m_0_num_coefficients),
                 self.sphere_channels,
             ),
             dtype=edge_feats_m_0.dtype,

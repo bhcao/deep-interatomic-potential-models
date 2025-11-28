@@ -12,13 +12,12 @@
 # You should have received a copy of the GNU Lesser General Public License along
 # with this program. If not, see <https://www.gnu.org/licenses/>.
 
-from pydantic import BaseModel
-
 from dipm.layers import Activation
-from dipm.typing import PositiveInt, DtypeEnum
+from dipm.typing import PositiveInt
+from dipm.models.force_model import ForceModelConfig
 
 
-class LiTENConfig(BaseModel):
+class LiTENConfig(ForceModelConfig):
     """The configuration / hyperparameters of the LiTEN model.
 
     Attributes:
@@ -39,10 +38,6 @@ class LiTENConfig(BaseModel):
                          in the model. Lastly, one can also pass an atomic energies
                          dictionary via this parameter different from the one in the
                          dataset info, that is used.
-        num_species: The number of elements (atomic species descriptors) allowed.
-                     If ``None`` (default), infer the value from the atomic energies
-                     map in the dataset info.
-        param_dtype: The data type of model parameters. Default is ``jnp.float32``.
     """
 
     num_layers: PositiveInt = 2
@@ -52,5 +47,3 @@ class LiTENConfig(BaseModel):
     trainable_rbf: bool = False
     activation: Activation = Activation.SILU
     atomic_energies: str | dict[int, float] | None = None
-    num_species: PositiveInt | None = None
-    param_dtype: DtypeEnum = DtypeEnum.F32

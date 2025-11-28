@@ -14,6 +14,7 @@
 
 from collections.abc import Sequence, Callable
 from functools import wraps
+import re
 from typing import Any
 
 import jax
@@ -22,7 +23,7 @@ from flax.typing import Dtype
 import pydantic
 
 from dipm.data.dataset_info import DatasetInfo
-from dipm.typing import get_dtype
+from dipm.typing import get_dtype, DtypeEnum
 
 
 class PrecallInterface:
@@ -85,6 +86,24 @@ class PrecallInterface:
         return wrapped
 
 
+class ForceModelConfig(pydantic.BaseModel):
+    """Base class for GNN node-wise energy models configuration.
+
+    This class defines common hyperparameters. It must be overridden by
+    the child classes.
+
+    Attributes:
+        force_head: Whether to predict forces with forces head. Default is ``False``.
+        param_dtype: The data type of model parameters. Default is ``jnp.float32``.
+        task_list: List of different tasks/datasets used in training. `None` (default)
+                   means no task embedding used / only one task.
+    """
+
+    force_head: bool = False
+    param_dtype: DtypeEnum = DtypeEnum.F32
+    task_list: list[str] | None = None
+
+
 class ForceModel(nnx.Module):
     """Base class for GNN node-wise energy models.
 
@@ -103,13 +122,23 @@ class ForceModel(nnx.Module):
     directly in the class attributes, as they won't be replicated when
     parallelized. Instead, use the nnx.Cache to wrap them.
 
-    To support direct forces prediction, you should add the ``force_head``
-    (bool) attribute to your Config class and specify ``force_head_prefix``
+    To support direct forces prediction, you should specify ``force_head_prefix``
     (str) in the class's constants. The prefix should be the state dict key
     prefix for the forces head parameters.
+
+    To support dropping unseen elements while loading the model, you should
+    specify the ``embedding_layer_regexp`` (re.Pattern) attribute in the class's
+    constants. The pattern will be used to match the embedding layer parameters
+    of shape (num_species, ...) and drop the corresponding rows of the
+    that should be modified.
+
+    The number of elements (atomic species descriptors) allowed will always be
+    inferred from the atomic energies map in the dataset info.
     """
 
-    Config = pydantic.BaseModel  # Must be overridden by the child classes
+    Config = ForceModelConfig  # Must be overridden by the child classes
+    force_head_prefix: str | None = None
+    embedding_layer_regexp: re.Pattern | None = None
 
     def __init__(
         self,
@@ -120,8 +149,8 @@ class ForceModel(nnx.Module):
     ):
         self.config = self.Config(**config) if isinstance(config, dict) else config
         self.dataset_info = dataset_info
-        self.dtype = dtype or get_dtype(getattr(self.config, 'param_dtype', 'f32'))
-        self.predict_forces = getattr(self.config, "force_head", False)
+        self.param_dtype = get_dtype(self.config.param_dtype)
+        self.dtype = dtype or self.param_dtype
 
     def __call__(
         self,

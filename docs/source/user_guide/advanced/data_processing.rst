@@ -42,7 +42,7 @@ class.
 This class allows to read a dataset into lists of
 :py:class:`ChemicalSystem <dipm.data.chemical_system.ChemicalSystem>` objects via
 its ``__getitem__`` method. You can either implement your own derived class to do
-this for your custom dataset format, or you can use bulit-in
+this for your custom dataset format, or you can use built-in
 :py:func:`create_datasets <dipm.data.chemical_datasets.hdf5_dataset.create_datasets>`.
 
 .. code-block:: python

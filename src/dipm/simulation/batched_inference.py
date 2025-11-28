@@ -83,8 +83,14 @@ def _prepare_graphs(
     allowed_atomic_numbers: set[int],
     cutoff_distance: float,
     max_neighbors: int | None,
+    task_index: int | list[int],
 ) -> list[jraph.GraphsTuple]:
     """Prepares graphs from list of `ase.Atoms` objects."""
+    if isinstance(task_index, int):
+        task_index = [task_index] * len(structures)
+    elif len(task_index) != len(structures):
+        raise ValueError("The number of tasks and structures must match.")
+
     z_table = AtomicNumberTable(sorted(allowed_atomic_numbers))
 
     chemical_systems = [
@@ -94,13 +100,17 @@ def _prepare_graphs(
             positions=atoms.get_positions(),
             cell=atoms.cell.array,
             pbc=atoms.pbc,
+            charge=None if 'charge' not in atoms.info else atoms.info['charge'],
+            spin=None if'spin' not in atoms.info else atoms.info['spin'],
+            task=task,
         )
-        for atoms in structures
+        for atoms, task in zip(structures, task_index)
     ]
 
     return [
-        create_graph_from_chemical_system(system, cutoff_distance, max_neighbors)
-        for system in chemical_systems
+        create_graph_from_chemical_system(
+            system, cutoff_distance, max_neighbors
+        ) for system in chemical_systems
     ]
 
 
@@ -127,6 +137,31 @@ def _prepare_graph_dataset(
     )
 
 
+def _get_task_index(
+    task_list: list[str],
+    task: str | list[str] | None,
+) -> int | list[int]:
+    if task is None:
+        if len(task_list) > 1:
+            raise ValueError(
+                "The force model supports multiple tasks, but no task was specified."
+            )
+        return 0
+
+    if isinstance(task, str):
+        if task not in task_list:
+            raise ValueError(f"The specified task {task} is not supported by the force model.")
+        return task_list.index(task)
+
+    if isinstance(task, list):
+        for t in task:
+            if t not in task_list:
+                raise ValueError(f"The specified task {t} is not supported by the force model.")
+        return [task_list.index(t) for t in task]
+
+    raise ValueError("Invalid task specification.")
+
+
 def run_batched_inference(
     structures: list[ase.Atoms],
     force_field: ForceFieldPredictor,
@@ -134,6 +169,7 @@ def run_batched_inference(
     max_n_node: int | None = None,
     max_n_edge: int | None = None,
     max_neighbors_per_atom: int | None = None,
+    task: str | list[str] | None = None,
 ) -> list[Prediction]:
     """Runs a batched inference on given structures.
 
@@ -164,6 +200,8 @@ def run_batched_inference(
         max_neighbors_per_atom: The maximum number of neighbors to include for each atom.
                                 The default is `None` which means that all neighbors within
                                 the cutoff distance are included.
+        task: The name of the task to run inference for. If the force model support multiple
+              tasks, it should be specified.
     Returns:
         A list of predictions for each structure. These dataclasses will hold a float
         for energy, a numpy array for forces of shape `(num_atoms, 3)`, and optionally
@@ -175,9 +213,18 @@ def run_batched_inference(
     if any(len(struct) == 1 for struct in structures):
         raise ValueError("Single atom systems are not supported yet.")
 
+    if force_field.force_model.config.task_list is not None:
+        task_index = _get_task_index(force_field.force_model.config.task_list, task)
+    else:
+        if task is not None:
+            logger.warning(
+                "The force model does not support multiple tasks, but a task was specified."
+            )
+        task_index = 0
+
     graphs = _prepare_graphs(
         structures, force_field.allowed_atomic_numbers, force_field.cutoff_distance,
-        max_neighbors_per_atom
+        max_neighbors_per_atom, task_index
     )
     graph_dataset = _prepare_graph_dataset(graphs, batch_size, max_n_node, max_n_edge)
 

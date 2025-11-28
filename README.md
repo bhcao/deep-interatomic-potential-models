@@ -3,7 +3,7 @@
 [![uv](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/uv/main/assets/badge/v0.json)](https://github.com/astral-sh/uv)
 [![Python 3.11](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-blue)](https://www.python.org/downloads/release/python-3110/)
 [![pre-commit](https://img.shields.io/badge/pre--commit-enabled-brightgreen?logo=pre-commit)](https://github.com/pre-commit/pre-commit)
-[![Tests and Linters 🧪](https://github.com/instadeepai/mlip/actions/workflows/tests_and_linters.yaml/badge.svg?branch=main)](https://github.com/instadeepai/mlip/actions/workflows/tests_and_linters.yaml)
+[![Tests and Linters 🧪](https://github.com/bhcao/deep-interatomic-potential-models/actions/workflows/tests_and_linters.yaml/badge.svg?branch=main)](https://github.com/bhcao/deep-interatomic-potential-models/actions/workflows/tests_and_linters.yaml)
 ![badge](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/mlipbot/b6e4bf384215e60775699a83c3c00aef/raw/pytest-coverage-comment.json)
 
 ## 👀 Overview
@@ -76,14 +76,14 @@ critical bugs. Here is the installation commands:
 
 ```bash
 pip install git+https://github.com/jax-md/jax-md.git
-pip install dipm[cuda,md]
+pip install "dipm[cuda,md]"
 ```
 
 To use TensorBoard or Weights and Biases logging in the training loop, install the
 corresponding optional dependencies:
 
 ```bash
-pip install dipm[cuda,visual]
+pip install "dipm[cuda,visual]"
 ```
 
 Furthermore, note that among our library dependencies we have pinned the versions
@@ -95,14 +95,21 @@ our dependencies in upcoming releases.
 
 We only support HDF5 format datasets (compatible with HDF5 used in
 [MACE](https://github.com/ACEsuit/mace)). We provided a dataset conversion toolkit
-[DIPM-Cvt](./dipm-conversion-tools) for this purpose. We recommend to install it in
+[DIPM-Cvt](https://github.com/bhcao/deep-interatomic-potential-models/blob/main/dipm-conversion-tool) for this purpose. We recommend to install it in
 a different environment than *dipm* to avoid conflicts. We provided a command-line
 interface `dipm-cvt-cli` for user-friendly usage.
 
 ## ⚡ Examples
 
+For coding-free training, use `python scripts/train.py scripts/train.yaml` and adapt the
+config file (`scripts/train.yaml`) to your needs. See the [documentation](https://bhcao.github.io/deep-interatomic-potential-models/user_guide/training.html) for more details.
+
+For coding-free MD simulations with JAX-MD, run
+`python scripts/run_md.py --model path_to_model --path path_to_structures`.
+Run `python scripts/run_md.py --help` for more options.
+
 In addition to the in-depth tutorials provided as part of our documentation
-[here](https://instadeepai.github.io/mlip/user_guide/index.html#deep-dive-tutorials),
+[here](https://bhcao.github.io/dipm/user_guide/index.html#deep-dive-tutorials),
 we also provide example Jupyter notebooks that can be used as
 simple templates to build your own MLIP pipelines:
 
@@ -120,22 +127,22 @@ pip install notebook && jupyter notebook
 The installation of *mlip* itself is included within the notebooks. We recommend to
 run these notebooks with GPU acceleration enabled.
 
-For coding-free training, use `python scripts/train.py scripts/train.yaml` and adapt the config file (`scripts/train.yaml`) to your needs.
-
 ## 🤗 Pre-trained models (via HuggingFace)
 
 We have prepared pre-trained models trained on a subset of the
-[SPICE2 dataset](https://zenodo.org/records/10975225) for each of the models included in
-this repo. They can be accessed directly on [InstaDeep's MLIP collection](https://huggingface.co/collections/InstaDeepAI/ml-interatomic-potentials-68134208c01a954ede6dae42),
-along with our curated dataset or directly through
+[SPICE2 dataset](https://zenodo.org/records/10975225) as described in MILP's white paper (See [below](#-citing)).
+MACE-S / ViSNet-S are converted from pre-trained MLIP models, please refer to
+[InstaDeep's MLIP collection](https://huggingface.co/collections/InstaDeepAI/ml-interatomic-potentials-68134208c01a954ede6dae42)
+for details, while LiTEN-M is trained from scratch. Models and dataset can be downloaded through
 the [huggingface-hub Python API](https://huggingface.co/docs/huggingface_hub/en/guides/download):
 
 ```python
 from huggingface_hub import hf_hub_download
 
-hf_hub_download(repo_id="InstaDeepAI/mace-organics", filename="mace_organics_01.zip", local_dir="")
-hf_hub_download(repo_id="InstaDeepAI/visnet-organics", filename="visnet_organics_01.zip", local_dir="")
-hf_hub_download(repo_id="InstaDeepAI/nequip-organics", filename="nequip_organics_01.zip", local_dir="")
+hf_hub_download(repo_id="bhcao/dipm-pretrained-models", filename="mace_s_organics_mlip.safetensors", local_dir="")
+hf_hub_download(repo_id="bhcao/dipm-pretrained-models", filename="visnet_s_organics_mlip.safetensors", local_dir="")
+hf_hub_download(repo_id="bhcao/dipm-pretrained-models", filename="liten_m_organics_dipm.safetensors", local_dir="")
+# hf_hub_download(repo_id="InstaDeepAI/nequip-organics", filename="nequip_organics_01.zip", local_dir="") # Broken
 hf_hub_download(repo_id="InstaDeepAI/SPICE2-curated", filename="SPICE2_curated.zip", local_dir="")
 ```
 Note that the pre-trained models are released on a different license than this library,
@@ -152,7 +159,7 @@ All these JAX-based model implementations are our own and should not be consider
 representative of the performance of the code developed by the original authors of the
 methods. In the table below, we compare our integrations with the JAX-MD and the ASE
 simulation engines, respectively.
-Further details can be found in our white paper (see [below](#-citing-our-work)).
+Further details can be found in our white paper (see [below](#-citing)).
 
 **MACE (2,139,152 parameters):**
 | Systems   | JAX-MD       | ASE          |
@@ -180,9 +187,9 @@ Scott Cameron, Louis Robinson, Tom Barrett, and Alex Laterre.
 
 ## 📝 License
 
-The upsteam repository [MLIP](https://github.com/instadeepai/mlip) is licensed under
-the [Apache 2.0 license](LICENSE.MLIP). This repository is licensed under the
-[GNU Lesser General Public License v3.0](LICENSE.LESSER).
+The upstream repository [MLIP](https://github.com/instadeepai/mlip) is licensed under
+the [Apache 2.0 license](https://github.com/bhcao/deep-interatomic-potential-models/blob/main/LICENSE.MLIP). This repository is licensed under the
+[GNU Lesser General Public License v3.0](https://github.com/bhcao/deep-interatomic-potential-models/blob/main/LICENSE.LESSER).
 
 ## 📚 Citing
 

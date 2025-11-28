@@ -15,19 +15,18 @@
 import pickle
 from pathlib import Path
 
-import flax.linen as nn
+from flax import nnx
 import jax
 import jax.numpy as jnp
 import jraph
 import numpy as np
-import pydantic
 import pytest
 from ase.io import read as ase_read_atoms
 
 from dipm.data import ChemicalSystem, DatasetInfo
 from dipm.data.helpers import create_graph_from_chemical_system
 from dipm.models import ForceFieldPredictor, Mace, Nequip, Visnet
-from dipm.models.force_model import ForceModel
+from dipm.models.force_model import ForceModel, ForceModelConfig
 from dipm.simulation.utils import create_graph_from_atoms
 
 CUTOFF_ANGSTROM = 3.0
@@ -88,25 +87,24 @@ def setup_system_and_mace_model(setup_system):
         "node_symmetry": 2,
         "l_max": 2,
         "symmetric_tensor_product_basis": True,
+        "include_pseudotensors": False,
     }
 
-    mace_model = Mace(Mace.Config(**mace_kwargs), dataset_info)
-    mace_ff = ForceFieldPredictor.from_force_model(
+    mace_model = Mace(Mace.Config(**mace_kwargs), dataset_info, rngs=nnx.Rngs(42))
+    mace_ff = ForceFieldPredictor(
         mace_model,
-        seed=42,
         predict_stress=False,
     )
-    mace_initial_params = mace_ff.params
 
     with MACE_PARAMS_PICKLE_FILE.open("rb") as pkl_file:
         mace_params = pickle.load(pkl_file)
 
-    assert jax.tree.map(np.shape, mace_initial_params) == jax.tree.map(
-        np.shape, mace_params
-    )
+    assert jax.tree.map(
+        np.shape, nnx.pure(nnx.state(mace_ff, nnx.Param))
+    ) == jax.tree.map(np.shape, mace_params)
 
-    mace_ff = ForceFieldPredictor(mace_ff.predictor, mace_params)
-    mace_apply_fun = jax.jit(mace_ff.predictor.apply)
+    nnx.update(mace_ff, mace_params)
+    mace_apply_fun = jax.jit(mace_ff)
 
     return atoms, graph, mace_apply_fun, mace_ff
 
@@ -125,23 +123,21 @@ def setup_system_and_visnet_model(setup_system):
         "attn_activation": "silu",
         "vecnorm_type": "max_min",
     }
-    visnet_model = Visnet(Visnet.Config(**visnet_kwargs), dataset_info)
-    visnet_ff = ForceFieldPredictor.from_force_model(
+    visnet_model = Visnet(Visnet.Config(**visnet_kwargs), dataset_info, rngs=nnx.Rngs(42))
+    visnet_ff = ForceFieldPredictor(
         visnet_model,
-        seed=42,
         predict_stress=False,
     )
-    visnet_initial_params = visnet_ff.params
 
     with VISNET_PARAMS_PICKLE_FILE.open("rb") as pkl_file:
         visnet_params = pickle.load(pkl_file)
 
-    assert jax.tree.map(np.shape, visnet_initial_params) == jax.tree.map(
-        np.shape, visnet_params
-    )
+    assert jax.tree.map(
+        np.shape, nnx.pure(nnx.state(visnet_ff, nnx.Param))
+    ) == jax.tree.map(np.shape, visnet_params)
 
-    visnet_ff = ForceFieldPredictor(visnet_ff.predictor, visnet_params)
-    visnet_apply_fun = jax.jit(visnet_ff.predictor.apply)
+    nnx.update(visnet_ff, visnet_params)
+    visnet_apply_fun = jax.jit(visnet_ff)
 
     return atoms, graph, visnet_apply_fun, visnet_ff
 
@@ -155,29 +151,27 @@ def setup_system_and_nequip_model(setup_system):
         "node_irreps": "4x0e + 4x0o + 4x1o + 4x1e + 4x2e + 4x2o",
         "l_max": 2,
         "num_bessel": 8,
-        "radial_net_nonlinearity": "swish",
+        "radial_net_nonlinearity": "silu",
         "radial_net_n_hidden": 8,
         "radial_net_n_layers": 2,
         "radial_envelope": "polynomial_envelope",
         "scalar_mlp_std": 4.0,
     }
-    nequip_model = Nequip(Nequip.Config(**nequip_kwargs), dataset_info)
-    nequip_ff = ForceFieldPredictor.from_force_model(
+    nequip_model = Nequip(Nequip.Config(**nequip_kwargs), dataset_info, rngs=nnx.Rngs(42))
+    nequip_ff = ForceFieldPredictor(
         nequip_model,
-        seed=42,
         predict_stress=False,
     )
-    nequip_initial_params = nequip_ff.params
 
     with NEQUIP_PARAMS_PICKLE_FILE.open("rb") as pkl_file:
         nequip_params = pickle.load(pkl_file)
 
-    assert jax.tree.map(np.shape, nequip_initial_params) == jax.tree.map(
-        np.shape, nequip_params
-    )
+    assert jax.tree.map(
+        np.shape, nnx.pure(nnx.state(nequip_ff, nnx.Param))
+    ) == jax.tree.map(np.shape, nequip_params)
 
-    nequip_ff = ForceFieldPredictor(nequip_ff.predictor, nequip_params)
-    nequip_apply_fun = jax.jit(nequip_ff.predictor.apply)
+    nnx.update(nequip_ff, nequip_params)
+    nequip_apply_fun = jax.jit(nequip_ff)
 
     return atoms, graph, nequip_apply_fun, nequip_ff
 
@@ -214,15 +208,14 @@ class QuadraticMLIP(ForceModel):
     Its simple form also allows for numerical checks, e.g. on Hessian predictions.
     """
 
-    class Config(pydantic.BaseModel):
+    class Config(ForceModelConfig):
         stiffness: list[float]
         length: list[float]
 
     config: Config
     dataset_info: DatasetInfo
 
-    @nn.compact
-    def __call__(self, vectors, species, senders, receivers):
+    def __call__(self, vectors, species, senders, receivers, _n_node, _rngs):
         stiffness = jnp.array(self.config.stiffness)
         length = jnp.array(self.config.length)
         specie = species[senders]

@@ -1,12 +1,21 @@
 # Changelog
 
+## Release 0.0.5
+
+- Adding support for spin, charge and task/dataset input.
+- Adding support for drop unseen elements from model.
+- Adding L2MAELoss borrowed from ocpmodels.
+- Adding support for using pre-trained models for training.
+- Fixing bugs when using `extended_metrics` and two stage training.
+- Fixing batched MD simulation with JAX-MD backend (bugs introduced by MLIP).
+
 ## Release 0.0.4
 
 - Rebasing dipm on mlip-v0.1.6 to fix bugs (such as incorrect distance on periodic
   systems) and add new features.
 - Adding support for EquiformerV2 model file conversion.
 - Adding TensorBoard and WandB loggers for training.
-- Fixing typos and incorect wigner-d matrix / euler angles.
+- Fixing typos and incorrect wigner-d matrix / euler angles.
 - Changing LICENSE to LGPL-3.0-or-later.
 
 ## Release 0.0.3
