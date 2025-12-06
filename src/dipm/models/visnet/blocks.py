@@ -292,7 +292,7 @@ class EquivariantScalar(OutputModel):
         param_dtype: Dtype = jnp.float32,
         rngs: nnx.Rngs,
     ):
-        self.output_network = [
+        self.output_network = nnx.List([
             GatedEquivariantBlock(
                 feat_channels,
                 vec_channels,
@@ -316,7 +316,7 @@ class EquivariantScalar(OutputModel):
                 param_dtype=param_dtype,
                 rngs=rngs,
             ),
-        ]
+        ])
 
     def pre_reduce(self, x, v, z=None, pos=None, batch=None):
         x, v = self.output_network[0](x, v)

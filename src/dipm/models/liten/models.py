@@ -29,6 +29,7 @@ from dipm.layers import (
 )
 from dipm.models.force_model import ForceModel
 from dipm.models.atomic_energies import get_atomic_energies
+from dipm.models.liten.blocks import EnergyHead
 from dipm.models.liten.config import LiTENConfig
 from dipm.utils.safe_norm import safe_norm
 
@@ -72,6 +73,8 @@ class LiTEN(ForceModel):
 
         num_species = len(self.dataset_info.atomic_energies_map)
 
+        num_tasks = 1 if self.dataset_info.task_list is None else len(self.dataset_info.task_list)
+
         liten_kwargs = dict(
             num_heads=self.config.num_heads,
             num_layers=self.config.num_layers,
@@ -82,6 +85,7 @@ class LiTEN(ForceModel):
             activation=self.config.activation,
             cutoff=r_max,
             num_species=num_species,
+            num_tasks=num_tasks,
         )
 
         self.liten_block = LiTENBlock(
@@ -100,6 +104,9 @@ class LiTEN(ForceModel):
         node_species: jax.Array,
         senders: jax.Array,
         receivers: jax.Array,
+        *,
+        n_node: jax.Array,
+        task: jax.Array | None = None,
         **_kwargs,
     ) -> jax.Array:
         # edge connect
@@ -107,14 +114,18 @@ class LiTEN(ForceModel):
         norm_edge_vectors = edge_vectors / (edge_distances[:, None] + 1e-8) # ViSNet style
 
         node_energies = self.liten_block(
-            norm_edge_vectors, edge_distances, node_species, senders, receivers
+            norm_edge_vectors, edge_distances, node_species, senders, receivers, n_node, task
         )
 
         mean = self.dataset_info.scaling_mean
         std = self.dataset_info.scaling_stdev
         node_energies = mean + std * node_energies
 
-        node_energies += self.atomic_energies.value[node_species]  # [n_nodes, ]
+        if task is not None:
+            task = jnp.repeat(task, n_node, total_repeat_length=len(node_species))
+            node_energies += self.atomic_energies.value[node_species, task]  # [n_nodes, ]
+        else:
+            node_energies += self.atomic_energies.value[node_species]  # [n_nodes, ]
 
         return node_energies
 
@@ -131,6 +142,7 @@ class LiTENBlock(nnx.Module):
         activation: str = "silu",
         cutoff: float = 5.0,
         num_species: int = 5,
+        num_tasks: int = 1,
         *,
         dtype: Dtype | None = None,
         param_dtype: Dtype = jnp.float32,
@@ -146,7 +158,7 @@ class LiTENBlock(nnx.Module):
             num_rbf, num_channels, dtype=dtype, param_dtype=param_dtype, rngs=rngs
         )
 
-        self.liten_layers = [
+        self.liten_layers = nnx.List([
             LiTENLayer(
                 num_heads=num_heads,
                 num_channels=num_channels,
@@ -159,16 +171,13 @@ class LiTENBlock(nnx.Module):
                 rngs=rngs,
             )
             for idx in range(num_layers)
-        ]
+        ])
 
         self.out_norm = nnx.LayerNorm(
             num_channels, epsilon=1e-05, dtype=dtype, param_dtype=param_dtype, rngs=rngs
         )
-        self.readout_energy = nnx.Sequential(
-            nnx.Linear(num_channels, num_channels // 2,
-                       dtype=dtype, param_dtype=param_dtype, rngs=rngs),
-            get_activation_fn(activation),
-            nnx.Linear(num_channels // 2, 1, dtype=dtype, param_dtype=param_dtype, rngs=rngs),
+        self.readout_energy = EnergyHead(
+            num_channels, num_tasks, activation, dtype=dtype, param_dtype=param_dtype, rngs=rngs
         )
 
     def __call__(
@@ -178,6 +187,8 @@ class LiTENBlock(nnx.Module):
         node_species: jax.Array,  # [n_nodes] int between 0 and num_species-1
         senders: jax.Array,  # [n_edges]
         receivers: jax.Array,  # [n_edges]
+        n_node: jax.Array,  # [batch_size]
+        task: jax.Array | None = None,
     ) -> jax.Array:
 
         # Embedding Layers
@@ -200,7 +211,7 @@ class LiTENBlock(nnx.Module):
             )
 
         node_scalar = self.out_norm(node_scalar)
-        node_energies = self.readout_energy(node_scalar).squeeze(-1)
+        node_energies = self.readout_energy(node_scalar, n_node, task).squeeze(-1)
 
         return node_energies
 

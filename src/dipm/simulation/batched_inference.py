@@ -213,8 +213,8 @@ def run_batched_inference(
     if any(len(struct) == 1 for struct in structures):
         raise ValueError("Single atom systems are not supported yet.")
 
-    if force_field.force_model.config.task_list is not None:
-        task_index = _get_task_index(force_field.force_model.config.task_list, task)
+    if force_field.force_model.dataset_info.task_list is not None:
+        task_index = _get_task_index(force_field.force_model.dataset_info.task_list, task)
     else:
         if task is not None:
             logger.warning(

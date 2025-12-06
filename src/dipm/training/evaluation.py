@@ -13,18 +13,15 @@
 # limitations under the License.
 
 import functools
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from typing import TypeAlias, Any
 
-import flax
 from flax import nnx
 import jax
 import jax.numpy as jnp
 import jraph
 import numpy as np
 
-from dipm.data.helpers.data_prefetching import PrefetchIterator
-from dipm.data.helpers.graph_dataset import GraphDataset
 from dipm.models.predictor import ForceFieldPredictor
 from dipm.training.metrics_reweighting import reweight_metrics_by_number_of_graphs
 from dipm.training.training_io_handler import LogCategory, TrainingIOHandler
@@ -114,10 +111,9 @@ def make_evaluation_step(
 def run_evaluation(
     predictor: ForceFieldPredictor,
     evaluation_step: EvaluationStepFun,
-    eval_dataset: GraphDataset | PrefetchIterator,
+    eval_dataset: Iterator[jraph.GraphsTuple],
     epoch_number: int,
     io_handler: TrainingIOHandler,
-    devices: list[jax.Device] | None = None, # type: ignore
     is_test_set: bool = False,
     extended_to_log: dict[str, Any] | None = None,
 ) -> float:
@@ -130,7 +126,6 @@ def run_evaluation(
         params: The parameters to use for the evaluation.
         epoch_number: The current epoch number.
         io_handler: The IO handler class that handles the logging of the result.
-        devices: The jax devices. It can be None if not run in parallel (default).
         is_test_set: Whether the evaluation is done on the test set, i.e.,
                      not during a training run. By default, this is false.
         extended_to_log: Additional metrics to log.
@@ -138,14 +133,8 @@ def run_evaluation(
     Returns:
         The mean loss.
     """
-    should_unreplicate_batches = devices is None and isinstance(
-        eval_dataset, PrefetchIterator
-    )
-
     metrics = []
     for batch in eval_dataset:
-        if should_unreplicate_batches:
-            batch = flax.jax_utils.unreplicate(batch)
         _metrics = evaluation_step(predictor, batch, epoch_number)
         metrics.append(jax.device_get(_metrics))
 

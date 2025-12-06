@@ -12,43 +12,29 @@
 # You should have received a copy of the GNU Lesser General Public License along
 # with this program. If not, see <https://www.gnu.org/licenses/>.
 
-from abc import ABC, abstractmethod
 from collections.abc import Sequence
 import logging
-import multiprocessing as mp
-from typing import overload
+from typing import overload, TypeVar, Generic
 
 import numpy as np
 
-from dipm.data.chemical_system import ChemicalSystem
-
-DEFAULT_WEIGHT = 1.0
-DEFAULT_PBC = np.zeros(3, bool)
-DEFAULT_CELL = np.zeros((3, 3))
-
 logger = logging.getLogger('dipm')
 
+_T_co = TypeVar("_T_co", covariant=True)
 
-class Dataset(ABC):
+
+class Dataset(Generic[_T_co]):
     """Pytorch dataset like base objects."""
 
     @overload
-    def __getitem__(self, index: int) -> ChemicalSystem:...
+    def __getitem__(self, index: int) -> _T_co:...
     @overload
-    def __getitem__(self, index: list | np.ndarray | slice) -> list[ChemicalSystem]:...
-    @abstractmethod
+    def __getitem__(self, index: list | np.ndarray | slice) -> list[_T_co]:...
     def __getitem__(self, index):
         raise NotImplementedError("Subclasses of Dataset should implement __getitem__.")
 
-    @abstractmethod
     def __len__(self) -> int:
         raise NotImplementedError("Subclasses of Dataset should implement __len__.")
-
-    @abstractmethod
-    def set_post_process_fn(self, fn):
-        """Set a post-processing function to be applied to each system before returning it. Return
-        None to filter out the system."""
-        raise NotImplementedError("Subclasses of Dataset should implement set_post_process_fn.")
 
     def release(self):
         """Release resources."""
@@ -56,114 +42,37 @@ class Dataset(ABC):
     def __del__(self):
         self.release()
 
-
-class _ParallelLoader:
-    """Helper class to load data in parallel."""
-
-    def __init__(self, datasets: list[Dataset]):
-        self.datasets = datasets
-        self.queues_in = []
-        self.queues_out = []
-        self.process_pool = []
-
-    def _worker(self, dataset: Dataset, queue_in: mp.Queue, queue_out: mp.Queue):
-        """Worker function to load data from a dataset."""
-        while True:
-            index = queue_in.get()
-            if index is None:
-                break
-            queue_out.put(dataset[index])
-
-    def start(self):
-        '''Start the worker processes.'''
-        for ds in self.datasets:
-            queue_in = mp.Queue()
-            queue_out = mp.Queue()
-            self.queues_in.append(queue_in)
-            self.queues_out.append(queue_out)
-            process = mp.Process(target=self._worker, args=(ds, queue_in, queue_out))
-            process.start()
-            self.process_pool.append(process)
-
-    def stop(self):
-        '''Stop the worker processes.'''
-        for queue_in in self.queues_in:
-            queue_in.put(None)
-
-        # Wait for all processes to finish
-        for p in self.process_pool:
-            p.join()
-
-        self.process_pool.clear()
-
-    def load(
-        self,
-        indices: int | list | np.ndarray | slice,
-        ds_indices: int | list[int]
-    ) -> ChemicalSystem | list[list[ChemicalSystem]]:
-        """Load data from the datasets in parallel."""
-
-        # single index, file handler is held by the worker process
-        if isinstance(indices, int):
-            self.queues_in[ds_indices].put(indices)
-            return self.queues_out[ds_indices].get()
-
-        # batch indices
-        for idx, ds_idx in zip(indices, ds_indices):
-            self.queues_in[ds_idx].put(idx)
-
-        results = []
-        for ds_idx in ds_indices:
-            data = self.queues_out[ds_idx].get()
-            results.append(data)
-
-        return results
+    def __iter__(self):
+        for i in range(len(self)):
+            yield self[i]
 
 
-class ConcatDataset(Dataset):
+class ConcatDataset(Dataset[_T_co]):
     """Dataset as a concatenation of multiple datasets. Pytorch-like ConcatDataset."""
 
-    def __init__(
-        self,
-        datasets: Sequence[Dataset],
-        shuffle: bool = False,
-        parallel: bool = False,
-    ):
+    datasets: list[Dataset[_T_co]]
+
+    def __init__(self, datasets: Sequence[Dataset]):
         """
         Create a concatenated dataset.
 
         Args:
             datasets (sequence): List of datasets to concatenate.
-            shuffle (bool): Whether to shuffle all datasets together.
-            parallel (bool): Whether to load data in parallel. If True, every dataset will be
-                loaded in a separate process when `__getitem__` is called.
         """
         self.datasets = datasets
         self.lengths = np.array([len(d) for d in self.datasets])
         self.cum_lengths = np.cumsum(self.lengths)
         self.length = int(self.cum_lengths[-1])
 
-        self.shuffle = shuffle
-        if self.shuffle:
-            self.indices = np.random.permutation(self.length)
-
-        # parallel loading
-        self.parallel = parallel
+        # parallel loader, will be set by DataLoader
         self._loader = None
 
     def _load(self, indices, ds_indices):
         """Load data from the datasets in parallel or sequentially."""
-        if self.parallel:
-            if self._loader is None:
-                self._loader = _ParallelLoader(self.datasets)
-                self._loader.start()
-            return self._loader.load(indices, ds_indices)
+        if self._loader is not None:
+            return self._loader(zip(ds_indices, indices))
 
         # sequential
-        if isinstance(indices, int):
-            item = self.datasets[ds_indices][indices]
-            return item
-
         results = []
         for idx, ds_idx in zip(indices, ds_indices):
             data = self.datasets[ds_idx][idx]
@@ -171,9 +80,6 @@ class ConcatDataset(Dataset):
         return results
 
     def __getitem__(self, index):
-        if self.shuffle:
-            index = self.indices[index]
-
         if isinstance(index, slice):
             return self._get_items_by_slice(
                 index.start or 0, index.stop or len(self), index.step or 1
@@ -185,16 +91,16 @@ class ConcatDataset(Dataset):
 
         return self._get_item(index)
 
-    def _get_item(self, index: int) -> ChemicalSystem:
+    def _get_item(self, index: int) -> _T_co:
         '''Get one item by index.'''
         dataset_idx = np.searchsorted(self.cum_lengths, index, side="right")
         if dataset_idx == 0:
             local_idx = index
         else:
             local_idx = index - self.cum_lengths[dataset_idx - 1]
-        return self._load(local_idx, dataset_idx)
+        return self._load([local_idx], [dataset_idx])[0]
 
-    def _get_items_by_indices(self, indices: np.ndarray) -> list[ChemicalSystem]:
+    def _get_items_by_indices(self, indices: np.ndarray) -> list[_T_co]:
         """Batch version: load items dataset by dataset (fewer file seeks)."""
         dataset_indices = np.searchsorted(self.cum_lengths, indices, side="right")
 
@@ -221,7 +127,7 @@ class ConcatDataset(Dataset):
                 result[position] = item
         return result
 
-    def _get_items_by_slice(self, start: int, stop: int, step: int) -> list[ChemicalSystem]:
+    def _get_items_by_slice(self, start: int, stop: int, step: int) -> list[_T_co]:
         """Efficiently handle non-shuffled slice with arbitrary step."""
         slices = []
 
@@ -250,20 +156,15 @@ class ConcatDataset(Dataset):
     def __len__(self) -> int:
         return self.length
 
-    def set_post_process_fn(self, fn):
-        """Recursively set post-processing function to all datasets."""
-        for ds in self.datasets:
-            ds.set_post_process_fn(fn)
-
     def release(self):
         '''Release parallel loading resources and dataset file handles.'''
         if self._loader is not None:
-            self._loader.stop()
+            self._loader.close()
         for ds in self.datasets:
             ds.release()
 
 
-class Subset(Dataset):
+class Subset(Dataset[_T_co]):
     """
     Subset of a dataset with a given slice.
     
@@ -272,30 +173,29 @@ class Subset(Dataset):
     using ConcatDataset, and its effect is completely equivalent to direct Subset.
     """
 
+    dataset: Dataset[_T_co]
+
+    @overload
+    def __new__(cls, dataset: ConcatDataset, indices: Sequence[int]) -> ConcatDataset: ...
+    @overload
+    def __new__(cls, dataset: Dataset, indices: Sequence[int]) -> "Subset": ...
     @overload
     def __new__(cls, dataset: ConcatDataset, start: int, length: int) -> ConcatDataset:...
     @overload
     def __new__(cls, dataset: Dataset, start: int, length: int) -> "Subset": ...
-    def __new__(cls, dataset: Dataset, start: int, length: int):
+    def __new__(cls, dataset, start_or_indices, length=None):
         if not isinstance(dataset, ConcatDataset):
             return super().__new__(cls)
 
-        # From a probabilistic perspective, almost all datasets will be kept.
-        if dataset.shuffle:
-            concat_ds = ConcatDataset(
-                dataset.datasets,
-                parallel=dataset.parallel,
-            )
-            concat_ds.shuffle = True
-            concat_ds.indices = dataset.indices[start:start+length]
-            concat_ds.length = length
-            return concat_ds
+        if cls._is_indices_mode(start_or_indices, length):
+            return cls._distribute_indices(dataset, np.array(start_or_indices, dtype=int))
+        return cls._distribute_interval(dataset, start_or_indices, length)
 
-        prev_cum = 0
+    @classmethod
+    def _distribute_interval(cls, dataset: ConcatDataset, start: int, length: int):
         new_datasets = []
         for ds, ds_end_global in zip(dataset.datasets, dataset.cum_lengths):
-            ds_start_global = prev_cum
-            prev_cum = ds_end_global
+            ds_start_global = ds_end_global - len(ds)
 
             # intersection of [start, stop) and [ds_start_global, ds_end_global)
             if start <= ds_start_global and start + length >= ds_end_global:
@@ -311,17 +211,50 @@ class Subset(Dataset):
             local_len = overlap_end - overlap_start
             new_datasets.append(cls(ds, local_start, local_len))
 
-        return ConcatDataset(
-            new_datasets,
-            parallel=dataset.parallel,
-        )
+        return ConcatDataset(new_datasets)
 
-    def __init__(self, dataset: Dataset, start: int, length: int):
+    @classmethod
+    def _distribute_indices(cls, dataset: ConcatDataset, indices: np.ndarray):
+        new_datasets = []
+        for ds, ds_end_global in zip(dataset.datasets, dataset.cum_lengths):
+            ds_start_global = ds_end_global - len(ds)
+
+            mask = (indices >= ds_start_global) & (indices < ds_end_global)
+            local_idx = indices[mask] - ds_start_global
+            if len(local_idx) == 0:
+                continue
+            new_datasets.append(cls(ds, local_idx))
+
+        return ConcatDataset(new_datasets)
+
+    def __init__(
+        self, dataset: Dataset, start_or_indices: int | Sequence[int], length: int | None = None
+    ):
+        if self._is_indices_mode(start_or_indices, length):
+            self.start = None
+            self.length = len(start_or_indices)
+            self.indices = np.array(start_or_indices, dtype=int)
+        else:
+            self.start = start_or_indices
+            self.length = length
+            self.indices = None
         self.dataset = dataset
-        self.start = start
-        self.length = length
+
+    @staticmethod
+    def _is_indices_mode(start_or_indices, length):
+        if length is None:
+            if not isinstance(start_or_indices, Sequence):
+                raise TypeError("Arguments must be (start, length) or (indices,).")
+            return True
+
+        if not isinstance(start_or_indices, int) or not isinstance(length, int):
+            raise TypeError("Arguments must be (start, length) or (indices,).")
+        return False
 
     def __getitem__(self, index):
+        if self.indices is not None:
+            return self.dataset[self.indices[index]]
+
         if isinstance(index, int):
             index += self.start
         elif isinstance(index, slice):
@@ -336,10 +269,6 @@ class Subset(Dataset):
 
     def __len__(self):
         return self.length
-
-    def set_post_process_fn(self, fn):
-        """Set post-processing function to the dataset."""
-        self.dataset.set_post_process_fn(fn)
 
     def release(self):
         '''Release dataset resources.'''

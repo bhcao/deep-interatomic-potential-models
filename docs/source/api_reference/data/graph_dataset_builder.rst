@@ -12,5 +12,3 @@ Graph Dataset Builder
     .. automethod:: prepare_datasets
 
     .. automethod:: get_splits
-
-    .. autoproperty:: dataset_info

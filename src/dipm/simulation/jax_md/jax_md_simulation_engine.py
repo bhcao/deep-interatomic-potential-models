@@ -123,13 +123,13 @@ class JaxMDSimulationEngine(SimulationEngine):
         receivers = tree_map(lambda n: n.idx[0, :], neighbors, is_leaf=is_neighbor_list)
 
         if self._config.task is not None:
-            if force_field.config.task_list is None:
+            if force_field.dataset_info.task_list is None:
                 raise ValueError(
                     "Task specified but no task list found in force field config."
                 )
-            self.task_index = force_field.config.task_list.index(self._config.task)
+            self.task_index = force_field.dataset_info.task_list.index(self._config.task)
         else:
-            if force_field.config.task_list is not None:
+            if force_field.dataset_info.task_list is not None:
                 raise ValueError(
                     "Task list found in force field config but no task specified."
                 )

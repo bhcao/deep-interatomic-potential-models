@@ -95,13 +95,10 @@ class ForceModelConfig(pydantic.BaseModel):
     Attributes:
         force_head: Whether to predict forces with forces head. Default is ``False``.
         param_dtype: The data type of model parameters. Default is ``jnp.float32``.
-        task_list: List of different tasks/datasets used in training. `None` (default)
-                   means no task embedding used / only one task.
     """
 
     force_head: bool = False
     param_dtype: DtypeEnum = DtypeEnum.F32
-    task_list: list[str] | None = None
 
 
 class ForceModel(nnx.Module):

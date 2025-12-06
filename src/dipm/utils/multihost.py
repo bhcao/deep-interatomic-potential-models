@@ -89,8 +89,7 @@ def single_host_jax_and_orbax():
     # fmt: off
     with patch("jax.process_index", return_value=0), \
             patch("jax.process_count", return_value=1), \
-            patch("jax.devices", return_value=jax.local_devices()), \
-            patch("orbax.checkpoint.utils.should_skip_device_sync", return_value=True):
+            patch("jax.devices", return_value=jax.local_devices()):
         yield
 
 

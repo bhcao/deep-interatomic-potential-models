@@ -145,9 +145,9 @@ class SO2Convolution(nnx.Module, PrecallInterface):
         num_channels_rad = self.fc_m0.in_features # for radial function
 
         # SO(2) convolution for non-zero m
-        self.so2_m_conv = []
+        so2_m_conv = []
         for m in range(1, self.mmax + 1):
-            self.so2_m_conv.append(
+            so2_m_conv.append(
                 SO2mConvolution(
                     m,
                     sphere_channels,
@@ -160,11 +160,11 @@ class SO2Convolution(nnx.Module, PrecallInterface):
                 )
             )
             num_channels_rad = (
-                num_channels_rad + self.so2_m_conv[-1].fc.in_features
+                num_channels_rad + so2_m_conv[-1].fc.in_features
             )
+        self.so2_m_conv = nnx.List(so2_m_conv)
 
         # Embedding function of distance
-        self.rad_func = None
         if not self.internal_weights:
             edge_channels_list = copy.deepcopy(edge_channels_list)
             if edge_channels_list is None:
@@ -195,14 +195,14 @@ class SO2Convolution(nnx.Module, PrecallInterface):
         num_edges = len(edge_embeds)
 
         # radial function
-        if self.rad_func is not None:
+        if not self.internal_weights:
             edge_embeds = self.rad_func(edge_embeds)
         offset_rad = 0
 
         # Compute m=0 coefficients separately since they only have real values (no imaginary)
         edge_feats_0 = edge_feats[:, :self.m_size[0]]
         edge_feats_0 = edge_feats_0.reshape(num_edges, -1)
-        if self.rad_func is not None:
+        if not self.internal_weights:
             edge_embeds_0 = edge_embeds[:, :self.fc_m0.in_features]
             edge_feats_0 = edge_feats_0 * edge_embeds_0
         if self.num_experts > 0:
@@ -229,7 +229,7 @@ class SO2Convolution(nnx.Module, PrecallInterface):
             edge_feats_m = edge_feats_m.reshape(num_edges, 2, -1)
 
             # Perform SO(2) convolution
-            if self.rad_func is not None:
+            if not self.internal_weights:
                 edge_embeds_m = edge_embeds[
                     :,
                     offset_rad : self.so2_m_conv[m - 1].fc.in_features + offset_rad

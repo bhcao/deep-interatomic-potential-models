@@ -118,13 +118,13 @@ class Linear(nnx.Module):
             key = rngs.params()
             return nnx.Param(parameter_initializer_(key, path_shape, param_dtype))
 
-        self.kernels = [
+        self.kernels = nnx.List([
             get_parameter(
                 ins.path_shape,
                 ins.weight_std,
             )
             for ins in self.linear_fn.instructions
-        ]
+        ])
 
         self.irreps_in = irreps_in
         self.irreps_out = irreps_out

@@ -282,9 +282,8 @@ class EquiformerV2Block(nnx.Module):
         )
 
         # Initialize the blocks for each layer of EquiformerV2
-        self.layers = []
-        for _ in range(num_layers):
-            layer = EquiformerV2Layer(
+        self.layers = nnx.List([
+            EquiformerV2Layer(
                 sphere_channels,
                 attn_hidden_channels,
                 num_heads,
@@ -309,7 +308,8 @@ class EquiformerV2Block(nnx.Module):
                 param_dtype=param_dtype,
                 rngs=rngs,
             )
-            self.layers.append(layer)
+            for _ in range(num_layers)
+        ])
 
         # Output blocks for energy and forces
         self.norm = get_layernorm_layer(
@@ -352,12 +352,10 @@ class EquiformerV2Block(nnx.Module):
                 param_dtype=param_dtype,
                 rngs=rngs,
             )
-        else:
-            self.force_block = None
 
         self.so3_rotation = SO3Rotation(lmax, mmax, mapping_coeffs.perm, dtype=dtype or param_dtype)
 
-        self.regress_forces = predict_forces
+        self.predict_forces = predict_forces
 
     def __call__(
         self,
@@ -426,7 +424,7 @@ class EquiformerV2Block(nnx.Module):
         node_energies = self.energy_block(node_feats)
         node_energies = node_energies[:, 0, 0] / self.avg_num_nodes
 
-        if self.regress_forces:
+        if self.predict_forces:
             forces = self.force_block(
                 node_feats,
                 node_species,
