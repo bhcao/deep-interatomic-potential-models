@@ -62,14 +62,14 @@ class FullyConnectedTensorProduct(nnx.Module):
             irreps_in1, irreps_in2, irreps_out
         )
         key = rngs.params()
-        self.weights = [
+        self.weights = nnx.List([
             nnx.Param(
                 initializers.normal(stddev=ins.weight_std)(
                     key, ins.path_shape, param_dtype
                 )
             )
             for ins in self.tensor_product.instructions
-        ]
+        ])
         self.dtype = dtype
 
     def __call__(

@@ -92,11 +92,18 @@ class ForceFieldPredictor(nnx.Module):
 
         graph = jax.tree.map(cast_jraph, graph)
 
+        # NNX>=0.12.0 do not support bound methods in nnx.grad, while pass self to
+        # nnx.grad(cls._compute_energy_and_forces) may cause trace level error.
+        # So we use a closure to wrap the function.
+        def compute_energy_and_forces(*args):
+            return self._compute_energy_and_forces(*args)
+
         strains = jnp.zeros_like(graph.globals.cell)
         if self.force_model.config.force_head:
             if self.predict_stress:
+                # Starting from flax 0.12.1, calling bound method in nnx.grad is deprecated.
                 pseudo_stress, prediction = nnx.grad(
-                    self._compute_energy_and_forces, argnums=1, has_aux=True
+                    compute_energy_and_forces, argnums=1, has_aux=True
                 )(graph.nodes.positions, strains, graph, rngs, ctx)
             else:
                 _, prediction = self._compute_energy_and_forces(
@@ -105,11 +112,11 @@ class ForceFieldPredictor(nnx.Module):
         else:
             if self.predict_stress:
                 (minus_forces, pseudo_stress), prediction = nnx.grad(
-                    self._compute_energy_and_forces, argnums=(0, 1), has_aux=True
+                    compute_energy_and_forces, argnums=(0, 1), has_aux=True
                 )(graph.nodes.positions, strains, graph, rngs, ctx)
             else:
                 minus_forces, prediction = nnx.grad(
-                    self._compute_energy_and_forces, argnums=0, has_aux=True
+                    compute_energy_and_forces, argnums=0, has_aux=True
                 )(graph.nodes.positions, strains, graph, rngs, ctx)
             prediction = prediction.replace(forces=-minus_forces)
 
@@ -240,7 +247,9 @@ class ForceFieldPredictor(nnx.Module):
                 n_edge=graph.n_edge,
             )
 
-        kwargs = {"n_node": graph.n_node, "rngs": rngs}
+        kwargs = {
+            "n_node": graph.n_node, "rngs": rngs, "task": graph.globals.task
+        }
         if isinstance(self.force_model, PrecallInterface):
             if ctx is None:
                 ctx = self.precall(graph, rngs)

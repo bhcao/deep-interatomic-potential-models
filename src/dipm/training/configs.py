@@ -76,6 +76,14 @@ class TrainingLoopConfig(pydantic.BaseModel):
                            we start the first epoch. By default, it is set to ``True``.
         log_interval: Number of steps to log the metrics. Default is ``None``, which
                       means logging once per epoch.
+        warmup_scan: Whether to perform a warm-up scan over the dataloader before training
+                     or a dictionary of warm-up scan values (``num_batches``, ``num_nodes``,
+                     ``num_graphs``). When set to ``True``, the dataloader will be iterated
+                     once to determine these values. When set to ``False``, they will be
+                     estimated based on the given metadata and may result in inaccurate
+                     metrics reweighting. When a dictionary is given, it should contain
+                     the keys ``train``, ``validation``, and ``test``. If some of these keys
+                     are missing, the corresponding dataloader will be scanned.
     """
 
     num_epochs: PositiveInt
@@ -84,6 +92,7 @@ class TrainingLoopConfig(pydantic.BaseModel):
     use_ema_params_for_eval: bool = True
     run_eval_at_start: bool = True
     log_interval: PositiveInt | None = None
+    warmup_scan: bool | dict[str, tuple[int, int, int]] = True
 
 
 class TrainingIOHandlerConfig(pydantic.BaseModel):

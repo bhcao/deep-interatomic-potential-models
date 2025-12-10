@@ -74,8 +74,8 @@ class MultiLayerPerceptron(nnx.Module):
         )
 
         # Layers
-        self.layers = []
-        self.norms = []
+        layers = []
+        norms = []
         in_features = features_list[0]
         for i, out_features in enumerate(features_list[1:]):
             scale = scalar_mlp_std if i < len(features_list) - 2 else 1.0
@@ -89,15 +89,17 @@ class MultiLayerPerceptron(nnx.Module):
                 param_dtype=param_dtype,
                 rngs=rngs,
             )
-            self.layers.append(layer)
+            layers.append(layer)
             if use_layer_norm and i < len(features_list) - 2:
-                self.norms.append(nnx.LayerNorm(
+                norms.append(nnx.LayerNorm(
                     out_features, dtype=dtype, param_dtype=param_dtype, rngs=rngs
                 ))
             else:
-                self.norms.append(lambda x: x) # placeholder
+                norms.append(lambda x: x) # placeholder
             in_features = out_features
 
+        self.layers = nnx.List(layers)
+        self.norms = nnx.List(norms)
 
     def __call__(self, x: jax.Array | e3nn.IrrepsArray) -> jax.Array | e3nn.IrrepsArray:
         """Evaluate the MLP

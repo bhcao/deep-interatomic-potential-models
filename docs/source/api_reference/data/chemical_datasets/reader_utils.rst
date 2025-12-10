@@ -9,4 +9,4 @@ This module contains utility functions for
 :py:class:`Dataset <dipm.data.chemical_datasets.dataset.Dataset>` objects.
 
 
-.. autofunction:: filter_systems_with_unseen_atoms_and_assign_atomic_species
+.. autofunction:: filter_broken_system_and_get_stats

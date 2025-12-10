@@ -8,3 +8,9 @@ Model I/O
     .. autofunction:: save_model
 
     .. autofunction:: load_model
+
+.. module:: dipm.utils.params_filter
+
+    .. autoclass:: ForceHeadParamsFilter
+
+    .. autoclass:: UnseenElementsParamsFilter

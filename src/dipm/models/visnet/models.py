@@ -197,7 +197,7 @@ class VisnetBlock(nnx.Module):
             num_rbf, num_channels, dtype=dtype, param_dtype=param_dtype, rngs=rngs
         )
 
-        self.visnet_layers = [
+        self.visnet_layers = nnx.List([
             VisnetLayer(
                 num_heads=num_heads,
                 num_channels=num_channels,
@@ -211,7 +211,7 @@ class VisnetBlock(nnx.Module):
                 rngs=rngs,
             )
             for i in range(num_layers)
-        ]
+        ])
 
         self.out_norm = nnx.LayerNorm(
             num_channels, epsilon=1e-05, dtype=dtype, param_dtype=param_dtype, rngs=rngs

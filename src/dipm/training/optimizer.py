@@ -53,8 +53,8 @@ class EMATracker(Pytree):
         Args:
             model: The updated original model.
         '''
-        param_arrays = nnx.to_arrays(nnx.pure(nnx.state(model, nnx.Param)))
-        opt_state_arrays = nnx.to_arrays(nnx.pure(self.opt_state))
+        param_arrays = nnx.pure(nnx.state(model, nnx.Param))
+        opt_state_arrays = nnx.pure(self.opt_state)
 
         _, new_opt_state = self.tx.update(param_arrays, opt_state_arrays)
         nnx.update(self.opt_state, nnx.state(new_opt_state))
@@ -70,7 +70,7 @@ class EMATracker(Pytree):
         '''
 
         def _get_model(opt_state, decay) -> nnx.State:
-            opt_state_arrays = nnx.to_arrays(nnx.pure(opt_state))
+            opt_state_arrays = nnx.pure(opt_state)
             ema = opt_state_arrays.ema
             if self.debias:
                 ema = optax.tree.bias_correction(ema, decay, opt_state_arrays.count)

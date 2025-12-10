@@ -1,93 +1,89 @@
-# Copyright 2025 InstaDeep Ltd
+# Copyright 2025 Cao Bohan
 #
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
+# DIPM is free software: you can redistribute it and/or modify it under the terms
+# of the GNU Lesser General Public License as published by the Free Software
+# Foundation, either version 3 of the License, or (at your option) any later
+# version.
 #
-#      http://www.apache.org/licenses/LICENSE-2.0
+# DIPM is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
+# PARTICULAR PURPOSE. See the GNU Lesser General Public License for more details.
 #
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
-import logging
+# You should have received a copy of the GNU Lesser General Public License along
+# with this program. If not, see <https://www.gnu.org/licenses/>.
 
 import numpy as np
 
-from dipm.data.chemical_datasets.type_aliases import (
-    ChemicalSystems,
-    ChemicalSystemsBySplit,
-)
-from dipm.data.helpers.atomic_number_table import AtomicNumberTable
-
-logger = logging.getLogger("dipm")
+from dipm.data.chemical_system import ChemicalSystem
+from dipm.data.helpers.neighborhood import get_neighborhood_stats
 
 
-def _update_atomic_species(
-    chemical_systems: ChemicalSystems, z_table: AtomicNumberTable
-) -> None:
-    """Update atomic species from the atomic number table."""
-    to_index_fun = np.vectorize(z_table.z_to_index)
-    for chemical_system in chemical_systems:
-        chemical_system.atomic_species = to_index_fun(chemical_system.atomic_numbers)
+def filter_broken_system_and_get_stats(
+    chemical_system: ChemicalSystem,
+    cutoff: float,
+    max_neighbours: int = None,
+    max_set: set = None,
+    max_num_nodes: int | None = None,
+    max_total_edges: int | None = None,
+    calc_stats: bool = False,
+    calc_part: bool = False,
+    calc_spices: bool = False,
+) -> dict[str, np.ndarray | float | int] | None:
+    """Filter out (return None) graph if it is empty, too large, or contain unseen elements,
+    and return its statistics."""
 
+    # 1. filter broken system
 
-def _filter_systems_with_unseen_atoms(
-    chemical_systems: ChemicalSystems, z_table: AtomicNumberTable
-) -> ChemicalSystems:
-    """Remove systems with atoms not present in the training set."""
-    original_number_systems = len(chemical_systems)
-    filtered_systems = []
-    for chemical_system in chemical_systems:
-        if np.all(np.isin(chemical_system.atomic_numbers, z_table.zs)):
-            filtered_systems.append(chemical_system)
-    if len(filtered_systems) < original_number_systems:
-        logger.warning(
-            "Removed %s systems due to missing atomic species in the training set.",
-            original_number_systems - len(filtered_systems),
-        )
-    return filtered_systems
+    species = set(chemical_system.atomic_numbers)
+    if not (max_set is None or species.issubset(max_set)):
+        return None
 
+    num_nodes = len(chemical_system.positions)
+    if num_nodes == 0 or (max_num_nodes is not None and num_nodes > max_num_nodes):
+        return None
 
-def filter_systems_with_unseen_atoms_and_assign_atomic_species(
-    train_systems: ChemicalSystems,
-    valid_systems: ChemicalSystems,
-    test_systems: ChemicalSystems,
-    z_table: AtomicNumberTable | None = None,
-) -> ChemicalSystemsBySplit:
-    """Remove systems with atoms not present in the training set
-    and assign atomic species based on the train systems.
+    # Atoms without edges are not included.
+    num_neighbors, min_neighbor_distance = get_neighborhood_stats(
+        chemical_system.positions,
+        cutoff,
+        max_neighbours,
+        pbc=chemical_system.pbc,
+        cell=chemical_system.cell,
+    )
+    if num_neighbors is None:
+        return None
 
-    Args:
-        train_systems: Loaded train dataset in the format
-                       of a list of ChemicalSystems
-        valid_systems: Loaded validation dataset in the format
-                       of a list of ChemicalSystems
-        test_systems: Loaded test dataset in the format
-                      of a list of ChemicalSystems
-        z_table: Optional conversion table from atomic numbers to specie
-                 indices. Pass this argument explicitly for compatibility
-                 with a trained model, otherwise pass `None` to define the
-                 conversion based on training set elements.
+    total_edges = np.sum(num_neighbors)
+    if total_edges == 0 or (max_total_edges is not None and total_edges > 2 * max_total_edges):
+        return None
 
-    Returns:
-        The modified/filtered output as a tuple of train, validation and test
-        datasets as a list of ``ChemicalSystem`` objects.
-    """
-    # Filter systems then assign atomic species
-    if z_table is None:
-        z_table = AtomicNumberTable(
-            sorted(set(np.concatenate([ts.atomic_numbers for ts in train_systems])))
-        )
-    valid_systems = _filter_systems_with_unseen_atoms(valid_systems, z_table)
-    test_systems = _filter_systems_with_unseen_atoms(test_systems, z_table)
-    _update_atomic_species(train_systems, z_table)
-    _update_atomic_species(valid_systems, z_table)
-    _update_atomic_species(test_systems, z_table)
+    # 2. get statistics
 
-    return train_systems, valid_systems, test_systems
+    output = {}
+    if calc_part or calc_stats:
+        output.update({
+            'total_edges': total_edges,
+            'num_nodes': num_nodes,
+            'num_neighbors': num_neighbors,
+        })
+
+    if calc_spices or calc_stats:
+        species = sorted(species)
+        output['species'] = np.array(species)
+
+    if calc_stats:
+        species_count = np.array([
+            np.count_nonzero(chemical_system.atomic_numbers == i)
+            for i in species
+        ], dtype=int)
+        output.update({
+            'min_neighbor_distance': min_neighbor_distance,
+            'species_count': species_count,
+            'energy': chemical_system.energy,
+        })
+
+    return output
+
 
 # ase.chemical_symbols
 CHEMICAL_SYMBOLS = [
@@ -114,4 +110,5 @@ CHEMICAL_SYMBOLS = [
     'Fr', 'Ra', 'Ac', 'Th', 'Pa', 'U', 'Np', 'Pu', 'Am', 'Cm', 'Bk',
     'Cf', 'Es', 'Fm', 'Md', 'No', 'Lr',
     'Rf', 'Db', 'Sg', 'Bh', 'Hs', 'Mt', 'Ds', 'Rg', 'Cn', 'Nh', 'Fl', 'Mc',
-    'Lv', 'Ts', 'Og']
+    'Lv', 'Ts', 'Og'
+]

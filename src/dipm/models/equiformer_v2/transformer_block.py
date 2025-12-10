@@ -97,6 +97,7 @@ class SO2EquivariantGraphAttention(nnx.Module):
         self.lmax = mapping_coeffs.lmax
         self.mmax = mapping_coeffs.mmax
         self.perm = nnx.Cache(mapping_coeffs.perm)
+        self.use_alpha_drop = alpha_drop != 0.0
 
         # Create edge scalar (invariant to rotations) features
         # Embedding function of the atomic numbers
@@ -181,8 +182,7 @@ class SO2EquivariantGraphAttention(nnx.Module):
         )
         # torch_geometric.nn.inits.glorot(self.alpha_dot) # Following GATv2
 
-        self.alpha_dropout = None
-        if alpha_drop != 0.0:
+        if self.use_alpha_drop:
             self.alpha_dropout = nnx.Dropout(alpha_drop)
 
         if attn_act_type == AttntionActivationType.GATE:
@@ -295,7 +295,7 @@ class SO2EquivariantGraphAttention(nnx.Module):
         alpha = jnp.einsum("bik, ik -> bi", x_0_alpha, alpha_dot)
         alpha = pyg_softmax(alpha, receivers, num_nodes)
         alpha = alpha.reshape(alpha.shape[0], 1, self.num_heads, 1)
-        if self.alpha_dropout is not None:
+        if self.use_alpha_drop:
             alpha = self.alpha_dropout(alpha, rngs=rngs)
 
         # Attention weights * non-linear messages

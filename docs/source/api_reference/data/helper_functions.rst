@@ -11,6 +11,8 @@ Helper functions
 
     .. autofunction:: get_neighborhood
 
+    .. autofunction:: get_neighborhood_stats
+
 .. module:: dipm.data.helpers.edge_vectors
 
     .. autofunction:: get_edge_relative_vectors
@@ -27,10 +29,4 @@ Helper functions
 
 .. module:: dipm.data.helpers.atomic_energies
 
-    .. autofunction:: compute_average_e0s_from_graphs
-
-.. module:: dipm.data.helpers.neighbor_analysis
-
-    .. autofunction:: compute_avg_num_neighbors
-
-    .. autofunction:: compute_avg_min_neighbor_distance
+    .. autofunction:: compute_average_e0s_from_statistics

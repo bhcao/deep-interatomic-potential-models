@@ -5,6 +5,6 @@
 Dataset Configs
 ===============
 
-.. autoclass:: ChemicalDatasetsConfig
+.. autoclass:: DatasetCreationConfig
 
-.. autoclass:: GraphDatasetBuilderConfig
+.. autoclass:: DatasetManagerConfig

@@ -115,7 +115,7 @@ class UMA(ForceModel, PrecallInterface):
 
         self.charge_spin_task_embed = ChargeSpinTaskEmbed(
             self.config.sphere_channels,
-            None if self.config.task_list is None else len(self.config.task_list),
+            None if self.dataset_info.task_list is None else len(self.dataset_info.task_list),
             dtype=self.dtype,
             param_dtype=self.param_dtype,
             rngs=rngs,
@@ -191,9 +191,9 @@ class UMA(ForceModel, PrecallInterface):
         rngs: nnx.Rngs | None = None,
         **_kwargs,
     ) -> dict:
-        if task is None:
-            if self.config.task_list is not None:
-                raise ValueError("Must provide `task` for `precall`.")
+        if task is None and self.dataset_info.task_list is not None:
+            raise ValueError("Must provide `task` for `precall`.")
+        if self.dataset_info.task_list is None:
             csd_mixed_emb = self.charge_spin_task_embed(charge, spin)
         else:
             csd_mixed_emb = self.charge_spin_task_embed(charge, spin, task)
@@ -218,7 +218,7 @@ class UMA(ForceModel, PrecallInterface):
             n_node=n_node,
         )
 
-    def cache(self, csd_mixed_emb: jax.Array, **_kwargs):
+    def cache(self, csd_mixed_emb: jax.Array,  **_kwargs):
         return {"csd_mixed_emb": csd_mixed_emb}
 
     @PrecallInterface.context_handler
@@ -228,11 +228,13 @@ class UMA(ForceModel, PrecallInterface):
         node_species: jax.Array,
         senders: jax.Array,
         receivers: jax.Array,
-        n_node: jax.Array, # Nel version of pyg.Data.batch
-        rngs: nnx.Rngs | None = None, # Rngs for dropout, None for eval
         *,
+        n_node: jax.Array, # Nel version of pyg.Data.batch
+        task: jax.Array | None,
+        rngs: nnx.Rngs | None = None, # Rngs for dropout, None for eval
         csd_mixed_emb: jax.Array,
         ctx: dict,
+        **_kwargs,
     ) -> jax.Array:
         node_feats = self.backbone(
             edge_vectors, node_species, csd_mixed_emb, senders, receivers, n_node, rngs, ctx=ctx
@@ -244,7 +246,11 @@ class UMA(ForceModel, PrecallInterface):
         std = self.dataset_info.scaling_stdev
         node_energies = mean + std * node_energies
 
-        node_energies += self.atomic_energies.value[node_species]  # [n_nodes, ]
+        if self.dataset_info.task_list is not None:
+            task = jnp.repeat(task, n_node, total_repeat_length=len(node_species))
+            node_energies += self.atomic_energies.value[node_species, task]  # [n_nodes, ]
+        else:
+            node_energies += self.atomic_energies.value[node_species]  # [n_nodes, ]
 
         if self.config.force_head:
             forces = self.force_head(node_feats[:, :4])[:, 1:4, 0]
@@ -331,9 +337,8 @@ class UMABlock(nnx.Module, PrecallInterface):
         self.envelope = get_radial_envelope_cls("polynomial_envelope")(self.cutoff)
 
         # Initialize the blocks for each layer
-        self.layers = []
-        for _ in range(num_layers):
-            layer = UMALayer(
+        self.layers = nnx.List([
+            UMALayer(
                 sphere_channels,
                 hidden_channels,
                 mapping_coeffs,
@@ -348,7 +353,8 @@ class UMABlock(nnx.Module, PrecallInterface):
                 param_dtype=param_dtype,
                 rngs=rngs,
             )
-            self.layers.append(layer)
+            for _ in range(num_layers)
+        ])
 
         self.norm = get_layernorm_layer(
             norm_type,
@@ -390,8 +396,8 @@ class UMABlock(nnx.Module, PrecallInterface):
 
         # Init per node representations using an atomic number based embedding
         node_feats_scaler = self.sphere_embedding(node_species)
-        batch = jnp.repeat(jnp.arange(len(n_node)), n_node, total_repeat_length=len(node_species))
-        node_feats_scaler += csd_mixed_emb[batch]
+        csd_mixed_emb = jnp.repeat(csd_mixed_emb, n_node, total_repeat_length=len(node_species), axis=0)
+        node_feats_scaler += csd_mixed_emb
 
         node_feats_pad = jnp.zeros(
             (len(node_species), (self.lmax + 1) ** 2 - 1, self.sphere_channels),
