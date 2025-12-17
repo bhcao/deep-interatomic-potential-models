@@ -15,5 +15,4 @@
 from dipm.data.helpers.atomic_number_table import AtomicNumberTable
 from dipm.data.helpers.edge_vectors import get_edge_relative_vectors
 from dipm.data.helpers.graph_creation import create_graph_from_chemical_system
-from dipm.data.helpers.graph_dataset import GraphDataset
 from dipm.data.helpers.neighborhood import get_neighborhood

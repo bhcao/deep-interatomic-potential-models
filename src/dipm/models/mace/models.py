@@ -237,7 +237,7 @@ class MaceBlock(nnx.Module):
             interaction_irreps = e3nn.Irreps(e3nn.Irrep.iterator(l_max))
 
         in_irreps = num_channels * e3nn.Irreps("0e")
-        self.layers = []
+        layers = []
         for i in range(num_interactions):
             selector_tp = (i == 0) and not residual_connection_first_layer
             last_layer = i == num_interactions - 1
@@ -268,7 +268,8 @@ class MaceBlock(nnx.Module):
                 rngs=rngs,
             )
             in_irreps = layer.out_irreps
-            self.layers.append(layer)
+            layers.append(layer)
+        self.layers = nnx.List(layers)
 
     def __call__(
         self,
@@ -430,19 +431,20 @@ class MaceLayer(nnx.Module):
             rngs=rngs,
         )
 
-        self.readout_layers = []
         if not last_layer:
-            for _head_idx in range(num_readout_heads):
-                self.readout_layers.append(Linear(
+            self.readout_layers = nnx.List([
+                Linear(
                     out_irreps,
                     output_irreps,
                     dtype=dtype,
                     param_dtype=param_dtype,
                     rngs=rngs,
-                ))  # [n_nodes, output_irreps]
+                )
+                for _ in range(num_readout_heads)
+            ])  # [n_nodes, output_irreps]
         else:  # Non-linear readout for last layer
-            for _head_idx in range(num_readout_heads):
-                self.readout_layers.append(NonLinearReadoutBlock(
+            self.readout_layers = nnx.List([
+                NonLinearReadoutBlock(
                     out_irreps,
                     readout_mlp_irreps,
                     output_irreps,
@@ -450,7 +452,9 @@ class MaceLayer(nnx.Module):
                     dtype=dtype,
                     param_dtype=param_dtype,
                     rngs=rngs,
-                ))  # [n_nodes, output_irreps]
+                )
+                for _ in range(num_readout_heads)
+            ])  # [n_nodes, output_irreps]
 
         # output irreps of node_feats
         self.out_irreps = out_irreps

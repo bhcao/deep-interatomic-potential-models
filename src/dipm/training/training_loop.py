@@ -25,9 +25,9 @@ import jax.numpy as jnp
 import jraph
 import numpy as np
 import optax
+from tqdm import tqdm
 
-from dipm.data.helpers.data_prefetching import PrefetchIterator
-from dipm.data.helpers.graph_dataset import GraphDataset
+from dipm.data import DataLoader
 from dipm.models import ForceFieldPredictor
 from dipm.loss import Loss
 from dipm.training.optimizer import EMATracker
@@ -39,7 +39,6 @@ from dipm.training.loggers.command_line import LineLogger
 from dipm.training.configs import TrainingLoopConfig
 from dipm.training.training_step import TrainingState, TrainingStateVar, make_train_step
 
-GraphDatasetOrPrefetchIterator: TypeAlias = GraphDataset | PrefetchIterator
 TrainingStepFun: TypeAlias = Callable[
     [TrainingState, jraph.GraphsTuple],
     tuple[TrainingState, dict],
@@ -110,14 +109,13 @@ class TrainingLoop:
 
     def __init__(
         self,
-        train_dataset: GraphDatasetOrPrefetchIterator,
-        validation_dataset: GraphDatasetOrPrefetchIterator,
+        train_dataset: DataLoader,
+        validation_dataset: DataLoader,
         force_field: ForceFieldPredictor,
         loss: Loss,
         optimizer: optax.GradientTransformation,
         config: TrainingLoopConfig,
         io_handler: TrainingIOHandler | None = None,
-        should_parallelize: bool = False,
     ) -> None:
         """Constructor.
 
@@ -136,20 +134,18 @@ class TrainingLoop:
                         The default is `None`, which means that a default IO handler
                         will be set up which does not include checkpointing but some
                         very basic metrics logging.
-            should_parallelize: Whether to parallelize (using data parallelization)
-                                across multiple devices. The default is ``False``.
         """
-        self.should_parallelize = should_parallelize
+        self.should_parallelize = train_dataset.devices is not None
 
         self.train_dataset = train_dataset
         self.validation_dataset = validation_dataset
 
-        self.total_num_graphs, self.total_num_nodes = (
-            self._get_total_number_of_graphs_and_nodes_in_dataset(self.train_dataset)
-        )
-
         self.force_field = force_field
         self.config = config
+
+        self.num_batches, self.total_num_graphs, self.total_num_nodes = (
+            self._get_number_of_batches_graphs_and_nodes(self.train_dataset, "train")
+        )
 
         self.extended_metrics = (
             True if not hasattr(loss, "extended_metrics") else loss.extended_metrics
@@ -168,39 +164,32 @@ class TrainingLoop:
         # Note: Because we shuffle the training data between epochs, the following
         # value may slightly fluctuate during training, however, we assume
         # it being fixed, which is a solid approximation for datasets of typical size.
-        _avg_n_graphs_train = self.total_num_graphs / len(self.train_dataset)
+        _avg_n_graphs_train = self.total_num_graphs / self.num_batches
         self.training_step = make_train_step(
             self._loss_train,
             _avg_n_graphs_train,
             config.num_gradient_accumulation_steps,
-            should_parallelize,
+            self.should_parallelize,
         )
         self.metrics = None
-        _avg_n_graphs_validation = (
-            self._get_total_number_of_graphs_and_nodes_in_dataset(
-                self.validation_dataset
-            )[0]
-            / len(self.validation_dataset)
+        num_batches_val, num_graphs_val, _ = self._get_number_of_batches_graphs_and_nodes(
+            self.validation_dataset, "validation"
         )
+        _avg_n_graphs_validation = num_graphs_val / num_batches_val
         # Clone of force_field, will be updated every training round.
         self.best_model = nnx.clone(force_field)
         self.eval_step = make_evaluation_step(
             self._loss_eval,
             _avg_n_graphs_validation,
-            should_parallelize,
+            self.should_parallelize,
         )
 
         self.best_evaluation_step = -1
         self.best_evaluation_loss = float("inf")
         self.best_evaluation_epoch = -1
 
-        self._should_unreplicate_train_batches = (
-            not should_parallelize
-        ) and isinstance(self.train_dataset, PrefetchIterator)
-
-        self.num_batches = len(self.train_dataset)
         self.steps_per_epoch = self.num_batches
-        if should_parallelize:
+        if self.should_parallelize:
             self.steps_per_epoch = (
                 self.num_batches // len(jax.devices())
             ) // config.num_gradient_accumulation_steps
@@ -271,8 +260,6 @@ class TrainingLoop:
 
         log_interval = self.config.log_interval or self.steps_per_epoch
         for batch in self.train_dataset:
-            if self._should_unreplicate_train_batches:
-                batch = flax.jax_utils.unreplicate(batch)
             _metrics = self.training_step(
                 self.training_state, batch, rngs, self.epoch_number
             )
@@ -284,8 +271,6 @@ class TrainingLoop:
                 self._log_after_training_steps(metrics, self.epoch_number, num_steps)
 
     def _run_evaluation(self, log: _TrainingLog | None = None) -> None:
-        devices = jax.devices() if self.should_parallelize else None
-
         extended_to_log = {}
         if log is not None:
             extended_to_log = log.get_epoch(self._get_num_steps_from_training_state())
@@ -306,7 +291,6 @@ class TrainingLoop:
             self.validation_dataset,
             self.epoch_number,
             self.io_handler,
-            devices,
             extended_to_log=extended_to_log,
         )
 
@@ -342,20 +326,19 @@ class TrainingLoop:
         }
         self.io_handler.log(LogCategory.BEST_MODEL, to_log, self.epoch_number)
 
-    def test(self, test_dataset: GraphDatasetOrPrefetchIterator) -> None:
+    def test(self, test_dataset: DataLoader) -> None:
         """Run the evaluation on the test dataset with the best parameters seen so far.
 
         Args:
             test_dataset: The test dataset as either a GraphDataset or
                           a PrefetchIterator.
         """
-        devices = jax.devices() if self.should_parallelize else None
-
         # The following part needs to be recomputed each time as different test
         # sets could be passed in
-        avg_n_graphs = self._get_total_number_of_graphs_and_nodes_in_dataset(
-            test_dataset
-        )[0] / len(test_dataset)
+        num_batches_test, num_graphs_test, _ = self._get_number_of_batches_graphs_and_nodes(
+            test_dataset, "test"
+        )
+        avg_n_graphs = num_graphs_test / num_batches_test
         test_eval_step = make_evaluation_step(
             self._loss_eval,
             avg_n_graphs,
@@ -369,7 +352,6 @@ class TrainingLoop:
             test_dataset,
             self.epoch_number,
             self.io_handler,
-            devices,
             is_test_set=True,
         )
 
@@ -440,7 +422,7 @@ class TrainingLoop:
         try:
             if self.extended_metrics:
                 opt_hyperparams = jax.device_get(
-                    nnx.to_arrays(nnx.pure(self.training_state.optimizer.opt_state.hyperparams))
+                    nnx.pure(self.training_state.optimizer.opt_state.hyperparams)
                 )
                 if self.should_parallelize:
                     opt_hyperparams = flax.jax_utils.unreplicate(opt_hyperparams)
@@ -457,25 +439,46 @@ class TrainingLoop:
             self._get_num_steps_from_training_state(),
         )
 
-    def _get_total_number_of_graphs_and_nodes_in_dataset(
-        self, dataset: GraphDataset | PrefetchIterator
-    ) -> tuple[int, int]:
+    def _get_number_of_batches_graphs_and_nodes(
+        self, dataset: DataLoader, name: str
+    ) -> tuple[int, int, int]:
+        if isinstance(self.config.warmup_scan, dict):
+            result = self.config.warmup_scan.get(name, None)
+            if result is not None:
+                return result
+        else:
+            if not self.config.warmup_scan:
+                num_graphs = len(dataset.dataset)
+                avg_num_nodes = self.force_field.dataset_info.avg_num_nodes
+                return num_graphs // dataset.batch_size, num_graphs, num_graphs * avg_num_nodes
+
         total_num_graphs = 0
         total_num_nodes = 0
+        total_num_batches = 0
 
         def _batch_generator():
-            if isinstance(dataset, PrefetchIterator):
+            if self.should_parallelize:
                 for stacked_batch in dataset:
                     for i in range(stacked_batch.n_node.shape[0]):
                         yield jax.tree.map(lambda x, idx=i: x[idx], stacked_batch)
             else:
                 yield from dataset
 
-        for _batch in _batch_generator():
+        approx_total = len(dataset.dataset) // dataset.batch_size
+        for _batch in tqdm(
+            _batch_generator(), total=approx_total, desc=f"Warmup scan of {name} dataset"
+        ):
             total_num_graphs += jraph.get_graph_padding_mask(_batch).sum()
             total_num_nodes += jraph.get_node_padding_mask(_batch).sum()
+            total_num_batches += 1
 
-        return total_num_graphs, total_num_nodes
+        logger.info(
+            "Warmup scan of %s dataset done. Total number of batches, graphs, and nodes: "
+            "[%s, %s, %s].",
+            name, total_num_batches, total_num_graphs, total_num_nodes,
+        )
+
+        return total_num_batches, total_num_graphs, total_num_nodes
 
     @property
     def ema_model(self) -> ForceFieldPredictor:

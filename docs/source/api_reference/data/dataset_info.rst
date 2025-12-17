@@ -8,5 +8,3 @@ Dataset Info
 .. autoclass:: DatasetInfo
 
     .. automethod:: __init__
-
-.. autofunction:: compute_dataset_info_from_graphs

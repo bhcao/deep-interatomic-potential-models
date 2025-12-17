@@ -59,11 +59,10 @@ class LazyLoader(types.ModuleType):
             if e.name != self._target_name:
                 raise e # Dependency of `self._target_name` is missing.
             if self._error_mode:
-                logger.critical(self._error_msg)
-            else:
-                self._target_name = self._replace_name
-                logger.warning(self._warning_msg)
-                module = importlib.import_module(self._replace_name)
+                raise ImportError(self._error_msg) from e
+            self._target_name = self._replace_name
+            logger.warning(self._warning_msg)
+            module = importlib.import_module(self._replace_name)
 
         self._parent_module_globals[self._local_name] = module
 

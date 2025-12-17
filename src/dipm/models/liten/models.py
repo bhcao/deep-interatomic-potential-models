@@ -29,6 +29,7 @@ from dipm.layers import (
 )
 from dipm.models.force_model import ForceModel
 from dipm.models.atomic_energies import get_atomic_energies
+from dipm.models.liten.blocks import EnergyHead
 from dipm.models.liten.config import LiTENConfig
 from dipm.utils.safe_norm import safe_norm
 
@@ -72,6 +73,8 @@ class LiTEN(ForceModel):
 
         num_species = len(self.dataset_info.atomic_energies_map)
 
+        num_tasks = 1 if self.dataset_info.task_list is None else len(self.dataset_info.task_list)
+
         liten_kwargs = dict(
             num_heads=self.config.num_heads,
             num_layers=self.config.num_layers,
@@ -82,6 +85,7 @@ class LiTEN(ForceModel):
             activation=self.config.activation,
             cutoff=r_max,
             num_species=num_species,
+            num_tasks=num_tasks,
         )
 
         self.liten_block = LiTENBlock(
@@ -100,6 +104,9 @@ class LiTEN(ForceModel):
         node_species: jax.Array,
         senders: jax.Array,
         receivers: jax.Array,
+        *,
+        n_node: jax.Array,
+        task: jax.Array | None = None,
         **_kwargs,
     ) -> jax.Array:
         # edge connect
@@ -107,14 +114,18 @@ class LiTEN(ForceModel):
         norm_edge_vectors = edge_vectors / (edge_distances[:, None] + 1e-8) # ViSNet style
 
         node_energies = self.liten_block(
-            norm_edge_vectors, edge_distances, node_species, senders, receivers
+            norm_edge_vectors, edge_distances, node_species, senders, receivers, n_node, task
         )
 
         mean = self.dataset_info.scaling_mean
         std = self.dataset_info.scaling_stdev
         node_energies = mean + std * node_energies
 
-        node_energies += self.atomic_energies.value[node_species]  # [n_nodes, ]
+        if self.dataset_info.task_list is not None:
+            task = jnp.repeat(task, n_node, total_repeat_length=len(node_species))
+            node_energies += self.atomic_energies.value[node_species, task]  # [n_nodes, ]
+        else:
+            node_energies += self.atomic_energies.value[node_species]  # [n_nodes, ]
 
         return node_energies
 
@@ -131,6 +142,7 @@ class LiTENBlock(nnx.Module):
         activation: str = "silu",
         cutoff: float = 5.0,
         num_species: int = 5,
+        num_tasks: int = 1,
         *,
         dtype: Dtype | None = None,
         param_dtype: Dtype = jnp.float32,
@@ -146,29 +158,28 @@ class LiTENBlock(nnx.Module):
             num_rbf, num_channels, dtype=dtype, param_dtype=param_dtype, rngs=rngs
         )
 
-        self.liten_layers = [
+        self.liten_layers = nnx.List([
             LiTENLayer(
                 num_heads=num_heads,
                 num_channels=num_channels,
                 activation=activation,
                 cutoff=cutoff,
-                vecnorm_type="max_min" if idx > 0 else "none",
+                vecnorm_type="max_min",
                 update_edge=idx < num_layers - 1,
+                update_vector=idx < num_layers - 1,
+                zero_vector=idx == 0,
                 dtype=dtype,
                 param_dtype=param_dtype,
                 rngs=rngs,
             )
             for idx in range(num_layers)
-        ]
+        ])
 
         self.out_norm = nnx.LayerNorm(
             num_channels, epsilon=1e-05, dtype=dtype, param_dtype=param_dtype, rngs=rngs
         )
-        self.readout_energy = nnx.Sequential(
-            nnx.Linear(num_channels, num_channels // 2,
-                       dtype=dtype, param_dtype=param_dtype, rngs=rngs),
-            get_activation_fn(activation),
-            nnx.Linear(num_channels // 2, 1, dtype=dtype, param_dtype=param_dtype, rngs=rngs),
+        self.readout_energy = EnergyHead(
+            num_channels, num_tasks, activation, dtype=dtype, param_dtype=param_dtype, rngs=rngs
         )
 
     def __call__(
@@ -178,6 +189,8 @@ class LiTENBlock(nnx.Module):
         node_species: jax.Array,  # [n_nodes] int between 0 and num_species-1
         senders: jax.Array,  # [n_edges]
         receivers: jax.Array,  # [n_edges]
+        n_node: jax.Array,  # [batch_size]
+        task: jax.Array | None = None,
     ) -> jax.Array:
 
         # Embedding Layers
@@ -186,7 +199,7 @@ class LiTENBlock(nnx.Module):
         edge_feats = self.edge_embedding(edge_feats)
 
         # [n_nodes, 3, num_channels]
-        node_vector = jnp.zeros((node_scalar.shape[0], 3, node_scalar.shape[1]), node_scalar.dtype)
+        node_vector = None
 
         for layer in self.liten_layers:
             node_scalar, node_vector, edge_feats = layer(
@@ -200,7 +213,7 @@ class LiTENBlock(nnx.Module):
             )
 
         node_scalar = self.out_norm(node_scalar)
-        node_energies = self.readout_energy(node_scalar).squeeze(-1)
+        node_energies = self.readout_energy(node_scalar, n_node, task).squeeze(-1)
 
         return node_energies
 
@@ -214,6 +227,8 @@ class LiTENLayer(nnx.Module):
         cutoff: float,
         vecnorm_type: str,
         update_edge: bool = True,
+        update_vector: bool = True,
+        zero_vector: bool = False,
         eps: float = 1e-8,
         *,
         dtype: Dtype | None = None,
@@ -224,6 +239,8 @@ class LiTENLayer(nnx.Module):
         self.num_channels = num_channels
         self.head_dim = num_channels // num_heads
         self.update_edge = update_edge
+        self.update_vector = update_vector
+        self.zero_vector = zero_vector
 
         self.layernorm = nnx.LayerNorm(
             num_channels, dtype=dtype, param_dtype=param_dtype, rngs=rngs
@@ -248,15 +265,6 @@ class LiTENLayer(nnx.Module):
             param_dtype=param_dtype,
             rngs=rngs,
         )
-        self.cross_linear = nnx.Linear(
-            num_channels,
-            num_channels,
-            use_bias=False,
-            kernel_init=initializers.xavier_uniform(),
-            dtype=dtype,
-            param_dtype=param_dtype,
-            rngs=rngs,
-        )
         self.node_linear = nnx.Linear(
             num_channels,
             num_channels,
@@ -275,7 +283,7 @@ class LiTENLayer(nnx.Module):
         )
         self.part_linear1 = nnx.Linear(
             num_channels,
-            num_channels * 2,
+            num_channels if zero_vector else num_channels * 2,
             kernel_init=initializers.xavier_uniform(),
             dtype=dtype,
             param_dtype=param_dtype,
@@ -283,20 +291,30 @@ class LiTENLayer(nnx.Module):
         )
         self.part_linear2 = nnx.Linear(
             num_channels,
-            num_channels * 3,
+            num_channels * 3 if update_vector else num_channels * 2,
             kernel_init=initializers.xavier_uniform(),
             dtype=dtype,
             param_dtype=param_dtype,
             rngs=rngs,
         )
-        self.f_linear = nnx.Linear(
-            num_channels,
-            num_channels,
-            kernel_init=initializers.xavier_uniform(),
-            dtype=dtype,
-            param_dtype=param_dtype,
-            rngs=rngs,
-        )
+        if update_edge and not zero_vector:
+            self.cross_linear = nnx.Linear(
+                num_channels,
+                num_channels,
+                use_bias=False,
+                kernel_init=initializers.xavier_uniform(),
+                dtype=dtype,
+                param_dtype=param_dtype,
+                rngs=rngs,
+            )
+            self.f_linear = nnx.Linear(
+                num_channels,
+                num_channels,
+                kernel_init=initializers.xavier_uniform(),
+                dtype=dtype,
+                param_dtype=param_dtype,
+                rngs=rngs,
+            )
 
         self.dtype = dtype
 
@@ -323,7 +341,7 @@ class LiTENLayer(nnx.Module):
     def message_fn(
         self,
         node_scalar: jax.Array, # [n_nodes, num_channels]
-        node_vector: jax.Array, # [n_nodes, 3, num_channels]
+        node_vector: jax.Array | None, # [n_nodes, 3, num_channels]
         senders: jax.Array, # [n_edges]
         receivers: jax.Array, # [n_edges]
         edge_distances: jax.Array, # [n_edges]
@@ -346,8 +364,13 @@ class LiTENLayer(nnx.Module):
         node_scalar = (node_scalar * attn).reshape(-1, self.num_channels)
 
         node_sca = self.act(self.part_linear1(node_scalar))[:, None] # [n_edges, 1, 2*num_channels]
-        node_sca1, node_sca2 = jnp.split(node_sca, 2, axis=2)
-        node_vector = node_vector[senders] * node_sca1 + node_sca2 * norm_edge_vectors[:, :, None]
+        if self.zero_vector:
+            node_vector = node_sca * norm_edge_vectors[:, :, None]
+        else:
+            node_sca1, node_sca2 = jnp.split(node_sca, 2, axis=2)
+            node_vector = (
+                node_vector[senders] * node_sca1 + node_sca2 * norm_edge_vectors[:, :, None]
+            )
 
         node_scalar = jax.ops.segment_sum(node_scalar, receivers, num_segments=n_nodes)
         node_vector = jax.ops.segment_sum(node_vector, receivers, num_segments=n_nodes)
@@ -367,17 +390,23 @@ class LiTENLayer(nnx.Module):
 
         node_scalar = self.part_linear2(node_scalar)
 
-        node_sca1, node_sca2, node_sca3 = jnp.split(node_scalar, 3, axis=1)
+        if self.update_vector:
+            node_sca1, node_sca2, node_sca3 = jnp.split(node_scalar, 3, axis=1)
+        else:
+            node_sca1, node_sca2 = jnp.split(node_scalar, 2, axis=1)
 
         delta_scalar = (vec_qua + vec_tri) * node_sca1 + node_sca2
-        delta_vector = node_vec1 * node_sca3[:, None]
 
-        return delta_scalar, delta_vector
+        if self.update_vector:
+            delta_vector = node_vec1 * node_sca3[:, None]
+            return delta_scalar, delta_vector
+
+        return delta_scalar
 
     def __call__(
         self,
         node_scalar: jax.Array, # [n_nodes, num_channels]
-        node_vector: jax.Array, # [n_nodes, 3, num_channels]
+        node_vector: jax.Array | None, # [n_nodes, 3, num_channels]
         senders: jax.Array, # [n_edges]
         receivers: jax.Array, # [n_edges]
         edge_distances: jax.Array, # [n_edges]
@@ -385,25 +414,34 @@ class LiTENLayer(nnx.Module):
         norm_edge_vectors: jax.Array, # [n_edges, 3]
     ):
         scalar_out = self.layernorm(node_scalar)
-        node_vector = self.vec_layernorm(node_vector)
+
+        if not self.zero_vector:
+            node_vector = self.vec_layernorm(node_vector)
 
         scalar_out, vector_out = self.message_fn(
             scalar_out, node_vector, senders, receivers, edge_distances,
             norm_edge_vectors, edge_feats
         )
 
-        if self.update_edge:
+        if self.update_edge and not self.zero_vector:
             delta_edge_feats = self.edge_update(
                 node_vector, senders, receivers, norm_edge_vectors, edge_feats
             )
             edge_feats = edge_feats + delta_edge_feats
 
         node_scalar = node_scalar + scalar_out
-        node_vector = node_vector + vector_out
 
-        delta_scalar, delta_vector = self.node_update(node_scalar, node_vector)
+        if self.zero_vector:
+            node_vector = vector_out
+        else:
+            node_vector = node_vector + vector_out
+
+        delta_scalar = self.node_update(node_scalar, node_vector)
+
+        if self.update_vector:
+            delta_scalar, delta_vector = delta_scalar
+            node_vector = node_vector + delta_vector
 
         node_scalar = node_scalar + delta_scalar
-        node_vector = node_vector + delta_vector
 
         return node_scalar, node_vector, edge_feats

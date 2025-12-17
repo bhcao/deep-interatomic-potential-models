@@ -102,13 +102,13 @@ class ForceFieldASECalculator(Calculator):
         num_edges = len(senders)
 
         if task is not None:
-            if force_field.config.task_list is None:
+            if force_field.dataset_info.task_list is None:
                 raise ValueError(
                     "Task specified but no task list found in force field config."
                 )
-            task_index = force_field.config.task_list.index(task)
+            task_index = force_field.dataset_info.task_list.index(task)
         else:
-            if force_field.config.task_list is not None:
+            if force_field.dataset_info.task_list is not None:
                 raise ValueError(
                     "Task list found in force field config but no task specified."
                 )

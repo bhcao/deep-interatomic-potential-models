@@ -15,7 +15,6 @@
 import json
 import os
 import logging
-from typing import Type
 
 import jax.numpy as jnp
 from flax import nnx
@@ -26,6 +25,7 @@ from safetensors.flax import save_file, safe_open
 from dipm.data import DatasetInfo
 from dipm.models import ForceFieldPredictor, KNOWN_MODELS
 from dipm.models.force_model import ForceModel
+from dipm.utils.params_filter import ParamsFilter
 
 PARAMETER_MODULE_DELIMITER = "."
 
@@ -73,34 +73,6 @@ def _key2tuple(key: str) -> tuple:
     return tuple(key_sep)
 
 
-def _drop_elements_from_dataset_info_and_params(
-    dataset_info: DatasetInfo,
-    params_raw: dict,
-    model_type: Type[ForceModel],
-    elements_to_drop: set[int],
-):
-    atomic_energies_map = {}
-    index_to_keep = []
-    for i, k in enumerate(sorted(dataset_info.atomic_energies_map)):
-        if k in elements_to_drop:
-            continue
-        atomic_energies_map[k] = dataset_info.atomic_energies_map[k]
-        index_to_keep.append(i)
-    index_to_keep = jnp.array(index_to_keep)
-
-    # update parameters
-    original_num_species = len(dataset_info.atomic_energies_map)
-    for k in list(params_raw.keys()):
-        if model_type.embedding_layer_regexp.search(k):
-            if len(params_raw[k]) != original_num_species:
-                raise ValueError(
-                    f"Shape of parameter {k} is mismatched. Expected {original_num_species},"
-                    f" got {len(params_raw[k])}."
-                )
-            params_raw[k] = params_raw[k][index_to_keep]
-    dataset_info.atomic_energies_map = atomic_energies_map
-
-
 def _check_param_matches_and_drop_extra(
     params_raw: dict,
     model: ForceModel,
@@ -126,11 +98,10 @@ def _check_param_matches_and_drop_extra(
 
 def load_model(
     load_path: str | os.PathLike,
-    model_type: Type[ForceModel] | None = None,
+    model_type: type[ForceModel] | None = None,
     dtype: Dtype | None = None,
-    drop_force_head: bool = True,
     strict: bool = True,
-    elements_to_drop: set[int] | None = None,
+    params_filters: ParamsFilter | list[ParamsFilter] | None = None,
 ) -> ForceFieldPredictor:
     """Loads a model from a safetensors file and returns it wrapped as a `ForceFieldPredictor`.
 
@@ -141,12 +112,11 @@ def load_model(
             and inferred from the saved metadata. Otherwise, it must be provided.
         dtype (optional): The dtype in computations. If not provided, it will be the same as the
             the parameters dtype.
-        drop_force_head (optional): If True, the head of the forces will be dropped if it exists
-            in the saved model. Default is ``True`` because it is not recommended to use the head
-            of the forces in inferece.
         strict (optional): If True, raises an error if the parameters name and shape are mismatched.
-        elements_to_drop (optional): If provided, the elements in this set will be dropped from
-            the loaded model.
+        params_filters (optional): A function or a list of functions that takes the dataset_info,
+            model_config, params_raw and model_type as input and returns the filtered dataset_info,
+            model_config and params_raw. This can be used to modify the loaded parameters or
+            metadata before creating the model.
 
     Returns:
         The loaded model wrapped
@@ -177,22 +147,15 @@ def load_model(
         model_type = hyperparams_raw["target"]
 
     model_config = model_type.Config(**hyperparams_raw["config"])
-
-    # drop forces head if requested
-    if drop_force_head and model_type.force_head_prefix is not None and model_config.force_head:
-        prefix = model_type.force_head_prefix + '.'
-        for k in list(params_raw.keys()):
-            if k.startswith(prefix):
-                del params_raw[k]
-        model_config.force_head = False
-        logger.info("Forces head has been dropped from the loaded model.")
-
-    # drop elements if requested
     dataset_info = DatasetInfo(**hyperparams_raw["dataset_info"])
-    if elements_to_drop is not None:
-        _drop_elements_from_dataset_info_and_params(
-            dataset_info, params_raw, model_type, elements_to_drop
-        )
+
+    if params_filters is not None:
+        if not isinstance(params_filters, list):
+            params_filters = [params_filters]
+            for f in params_filters:
+                dataset_info, model_config, params_raw = f(
+                    dataset_info, model_config, params_raw, model_type
+                )
 
     params_raw = {_key2tuple(k): v for k, v in params_raw.items()}
     params = unflatten_mapping(params_raw)

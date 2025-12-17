@@ -58,14 +58,15 @@ class Contraction(nnx.Module):
                 [node_irreps] * order, keep_ir=keep_irrep_out
             )
 
-        self.weights = []
+        weights = []
         for mul, _ in reduced_basis.irreps:
             # u: ndarray [(irreps_x.dim)^order, multiplicity, ir_out.dim]
             key = rngs.params()
             w = nnx.Param(initializers.normal(
                 stddev=(mul**-0.5) ** (1.0 - gradient_normalization)
             )(key, (num_species, mul, num_features), param_dtype))
-            self.weights.append(w)
+            weights.append(w)
+        self.weights = nnx.List(weights)
 
         self.reduced_basis = nnx.Cache(reduced_basis.astype(dtype))
         self.dtype = dtype
@@ -141,9 +142,8 @@ class SymmetricContraction(nnx.Module):
                 gradient_normalization
             ]
 
-        self.contractions = []
-        for order in range(correlation, 0, -1):  # correlation, ..., 1
-            self.contractions.append(Contraction(
+        self.contractions = nnx.List([
+            Contraction(
                 order,
                 num_features,
                 node_irreps,
@@ -155,7 +155,9 @@ class SymmetricContraction(nnx.Module):
                 dtype=dtype,
                 param_dtype=param_dtype,
                 rngs=rngs,
-            ))
+            )
+            for order in range(correlation, 0, -1)
+        ]) # correlation, ..., 1
 
     @property
     def _keep_irrep_out(self) -> e3nn.Irreps:

@@ -128,3 +128,59 @@ def get_neighborhood(
     # See docstring of functions get_edge_relative_vectors() and
     # get_edge_vectors() on how these return values are used
     return senders, receivers, shifts
+
+
+def get_neighborhood_stats(
+    positions: np.ndarray,  # [num_positions, 3]
+    cutoff: float,
+    max_neighbors: int | None = None,
+    pbc: tuple[bool, bool, bool] | None = None,
+    cell: np.ndarray | None = None,  # [3, 3]
+) -> tuple[np.ndarray, float | None]:
+    """Computes the statistical information of the edges.
+
+    Args:
+        positions: The position matrix.
+        cutoff: The distance cutoff for the edges in Angstrom.
+        max_neighbors: The maximum number of neighbors to consider for each atom.
+        pbc: A tuple of bools representing if periodic boundary conditions exist in
+             any of the spatial dimensions. Default is None, which means False in every
+             direction.
+        cell: The unit cell of the system given as a 3x3 matrix or as None (default),
+              which means that matscipy will compute the minimal cell size needed to
+              fit the whole system.
+
+    Returns:
+        A tuple of **num_neighbors_per_atom** (number of neighbors for each atom) and 
+        **min_neighbor_distance** (minimum distance between the atoms). If there are no
+        edges, then we return None for both values.
+    """
+    if pbc is None:
+        pbc = (False, False, False)
+
+    if np.all(cell == 0.0):
+        cell = None
+
+    assert len(pbc) == 3 and all(isinstance(i, (bool, np.bool_)) for i in pbc)
+    assert cell is None or cell.shape == (3, 3)
+
+    senders, distances = _safe_matscipy_neighbour_list(
+        quantities="id",
+        pbc=pbc,
+        cell=cell,
+        positions=positions,
+        cutoff=cutoff,
+    )
+
+    if len(distances) == 0:
+        return None, None
+
+    # Compute the number of neighbors for each atom
+    _, num_neighbors_per_atom = np.unique(senders, return_counts=True)
+    if max_neighbors is not None:
+        num_neighbors_per_atom = np.minimum(num_neighbors_per_atom, max_neighbors)
+
+    # Compute the minimum distance between the atoms
+    min_neighbor_distance = np.min(distances)
+
+    return num_neighbors_per_atom, min_neighbor_distance

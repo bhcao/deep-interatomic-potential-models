@@ -18,7 +18,7 @@ import pydantic
 from pydantic import field_validator, model_validator
 from typing_extensions import Self
 
-from dipm.typing import PositiveInt, PositiveFloat, Proportion
+from dipm.typing import PositiveInt, PositiveFloat, NonNegativeInt, Proportion
 
 
 def _expand_path_to_list(paths) -> list[Path]:
@@ -38,9 +38,8 @@ def _expand_path_to_list(paths) -> list[Path]:
     return expanded
 
 
-class ChemicalDatasetsConfig(pydantic.BaseModel):
-    """Pydantic-based config related to data preprocessing and loading into
-    `ChemicalSystem`s.
+class DatasetCreationConfig(pydantic.BaseModel):
+    """Pydantic-based config related to creating dataset classes.
 
     When directories are given in `*_dataset_paths`, files ending with `.hdf5` or `.h5`
     in those directories will be automatically detected and added. If dict is given,
@@ -63,9 +62,6 @@ class ChemicalDatasetsConfig(pydantic.BaseModel):
                         Cannot be provided if ``valid_dataset_paths`` or ``test_dataset_paths``
                         are not empty.
                         If ``None``, then no splitting will be done.
-        shuffle: Whether to shuffle the data before splitting and loading. Default is ``True``.
-        parallel: Whether to use parallel loading or not. Every dataset file will use a
-                  separate process to load data. Default is ``True``.
         train_num_to_load: Number of training set data points to load from the given
                            dataset. By default, this is ``None`` which means all the
                            data points are loaded.
@@ -78,6 +74,8 @@ class ChemicalDatasetsConfig(pydantic.BaseModel):
                            dataset. By default, this is ``None`` which means all the
                            data points are loaded.
                            If multiple dataset paths are given, this limit will apply in total.
+        random_subset: Whether to randomly split dataset(s) when ``dataset_splits`` or
+                       ``*_num_to_load`` is provided. Default is ``True``.
     """
 
     train_dataset_paths: list[Path] | dict[str, list[Path]]
@@ -89,12 +87,11 @@ class ChemicalDatasetsConfig(pydantic.BaseModel):
         tuple[Proportion, Proportion, Proportion] | None
     ) = None
 
-    shuffle: bool = True
-    parallel: bool = True
-
     train_num_to_load: PositiveInt | Proportion | None = None
     valid_num_to_load: PositiveInt | Proportion | None = None
     test_num_to_load: PositiveInt | Proportion | None = None
+
+    random_subset: bool = True
 
     @field_validator(
         "train_dataset_paths",
@@ -168,12 +165,16 @@ class ChemicalDatasetsConfig(pydantic.BaseModel):
         return self
 
 
-class GraphDatasetBuilderConfig(pydantic.BaseModel):
-    """Pydantic-based config related to graph dataset building and preprocessing.
+class DatasetManagerConfig(pydantic.BaseModel):
+    """Pydantic-based config related to data preprocessing and loading into
+    `ChemicalSystem`s.
 
     Attributes:
         graph_cutoff_angstrom: Graph cutoff distance in Angstrom to apply when
                                creating the graphs. Default is 5.0.
+        shuffle: Whether to shuffle the data before splitting and loading. Default is ``True``.
+        num_workers: Number of subprocesses to load data. If ``None``, will use 
+                     ``min(num_files, num_cpus)`` subprocesses. Default is ``None``.
         max_n_node: This value will be multiplied with the batch size to determine the
                     maximum number of nodes we allow in a batch.
                     Note that a batch will always contain max_n_node * batch_size
@@ -193,9 +194,7 @@ class GraphDatasetBuilderConfig(pydantic.BaseModel):
                     if either the maximum number of nodes or edges are reached before
                     the number of graphs is reached. Default is 16.
         num_batch_prefetch: Number of batched graphs to prefetch while iterating
-                            over batches. Default is 1.
-        batch_prefetch_num_devices: Number of threads to use for prefetching.
-                                    Default is 1.
+                            over batches. Default is 128.
         use_formation_energies: Whether the energies in the dataset should already be
                                 transformed to subtract the average atomic energies.
                                 Default is ``False``. Make sure that if you set this
@@ -205,16 +204,22 @@ class GraphDatasetBuilderConfig(pydantic.BaseModel):
                               elements in the training dataset from the ``dataset_info``
                               atomic numbers table. If ``True``, remember to remove unused
                               embeddings from the model by yourself. Default is ``False``.
+        update_dataset_info: If ``dataset_info`` is provided, whether to update the dataset
+                             related information in the ``dataset_info`` object.
     """
 
     graph_cutoff_angstrom: PositiveFloat = 5.0
+
+    shuffle: bool = True
+    num_workers: NonNegativeInt | None = None
+
     max_n_node: PositiveInt | None = None
     max_n_edge: PositiveInt | None = None
     max_neighbors_per_atom: PositiveInt | None = None
     batch_size: PositiveInt = 16
 
-    num_batch_prefetch: PositiveInt = 1
-    batch_prefetch_num_devices: PositiveInt = 1
+    num_batch_prefetch: NonNegativeInt = 128
 
     use_formation_energies: bool = False
     drop_unseen_elements: bool = False
+    update_dataset_info: bool = False

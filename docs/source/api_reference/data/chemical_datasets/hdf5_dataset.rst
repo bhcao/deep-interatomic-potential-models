@@ -60,5 +60,3 @@ See below for the API reference to the associated loader class.
     .. automethod:: __len__
 
     .. automethod:: release
-
-.. autofunction:: create_datasets

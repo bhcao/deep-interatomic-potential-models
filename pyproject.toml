@@ -1,6 +1,6 @@
 [project]
 name = "dipm"
-version = "0.0.5"
+version = "0.0.6"
 description = "Deep Interatomic Potential Models in JAX"
 license = "LGPL-3.0-or-later"
 license-files = [
@@ -28,15 +28,14 @@ classifiers = [
 requires-python = ">=3.11,<3.14"
 
 dependencies = [
-    "numpy >1.26.0,<3",
-    "jax >=0.4.32",
-    "orbax-checkpoint ==0.5.2",
-    "omegaconf >=2.3.0",
+    "numpy >=2.0.0,<3",
+    "jax >=0.7.1",
+    "orbax-checkpoint >=0.11.17",
     "e3nn-jax >=0.20.7",
-    "flax >=0.9.0",
+    "flax >=0.12.0",
     "jraph",
     "orbax >=0.1.9",
-    "matscipy >=1.1.0",
+    "matscipy >=1.2.0",
     "pydantic >=2.10.2",
     "h5py >=3.12.1",
     "tqdm >=4.0",

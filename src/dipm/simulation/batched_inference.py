@@ -24,9 +24,9 @@ import numpy as np
 from dipm.data import ChemicalSystem
 from dipm.data.helpers import (
     AtomicNumberTable,
-    GraphDataset,
     create_graph_from_chemical_system,
 )
+from dipm.data.helpers.dynamically_batch import dynamically_batch
 from dipm.models import ForceFieldPredictor
 from dipm.typing import Prediction
 
@@ -114,27 +114,35 @@ def _prepare_graphs(
     ]
 
 
-def _prepare_graph_dataset(
-    graphs: list[jraph.GraphsTuple],
-    batch_size: int,
-    max_n_node: int | None,
-    max_n_edge: int | None,
-) -> GraphDataset:
-    """Initializes the graph dataset object from jraph graphs."""
-    if max_n_node is None:
-        max_n_node = _get_optimal_max_n_node(graphs)
-    if max_n_edge is None:
-        max_n_edge = _get_optimal_max_n_edge(graphs, max_n_node)
+class _MiniGraphDataset:
+    def __init__(
+        self,
+        graphs: list[jraph.GraphsTuple],
+        batch_size: int,
+        max_n_node: int | None,
+        max_n_edge: int | None,
+    ):
+        """Initializes the graph dataset object from jraph graphs."""
+        if max_n_node is None:
+            max_n_node = _get_optimal_max_n_node(graphs)
+        if max_n_edge is None:
+            max_n_edge = _get_optimal_max_n_edge(graphs, max_n_node)
 
-    return GraphDataset(
-        graphs=graphs,
-        batch_size=batch_size,
-        max_n_node=max_n_node,
-        max_n_edge=max_n_edge,
-        should_shuffle=False,
-        skip_last_batch=False,
-        raise_exc_if_graphs_discarded=True,
-    )
+        n_node = max_n_node * batch_size + 1
+        n_edge = max_n_edge * batch_size * 2
+
+        self._graphs = graphs
+        self._batch_size = batch_size
+        self._n_node = n_node
+        self._n_edge = n_edge
+
+    def __iter__(self):
+        return dynamically_batch(
+            graphs_tuple_iterator=self._graphs,
+            n_node=self._n_node,
+            n_edge=self._n_edge,
+            n_graph=self._batch_size,
+        )
 
 
 def _get_task_index(
@@ -213,8 +221,8 @@ def run_batched_inference(
     if any(len(struct) == 1 for struct in structures):
         raise ValueError("Single atom systems are not supported yet.")
 
-    if force_field.force_model.config.task_list is not None:
-        task_index = _get_task_index(force_field.force_model.config.task_list, task)
+    if force_field.force_model.dataset_info.task_list is not None:
+        task_index = _get_task_index(force_field.force_model.dataset_info.task_list, task)
     else:
         if task is not None:
             logger.warning(
@@ -226,13 +234,13 @@ def run_batched_inference(
         structures, force_field.allowed_atomic_numbers, force_field.cutoff_distance,
         max_neighbors_per_atom, task_index
     )
-    graph_dataset = _prepare_graph_dataset(graphs, batch_size, max_n_node, max_n_edge)
+    graph_dataset = _MiniGraphDataset(graphs, batch_size, max_n_node, max_n_edge)
 
     logger.info(
         "Graphs preparation done. Now running inference "
         "on %s structure(s) in %s batches...",
-        len(graph_dataset.graphs),
-        len(graph_dataset),
+        len(graphs),
+        sum(1 for _ in graph_dataset),
     )
 
     jitted_force_field_fun = nnx.jit(force_field)

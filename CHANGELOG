@@ -1,5 +1,16 @@
 # Changelog
 
+## Release 0.0.6
+
+- Bumping minimum jax/flax/orbax/matscipy/numpy version and fixing compatibility
+  issues.
+- The dataset is no longer fully loaded into memory before training to support
+  larger datasets. To support dropping empty/unseen systems, addtional
+  `*_exclude.npy` files are generated and stored alongside the dataset files
+  if any systems are excluded while preprocessing.
+- Adding multi-task support for the `LiTEN` model.
+- Simpifying the `LiTEN` model by removing unused layers.
+
 ## Release 0.0.5
 
 - Adding support for spin, charge and task/dataset input.

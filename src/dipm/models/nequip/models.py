@@ -186,7 +186,7 @@ class NequipBlock(nnx.Module):
 
         # Irreps are simplified from node_irreps to in_irreps since some are zero
         in_irreps = node_irreps.filter(keep='0e')
-        self.layers = []
+        layers = []
         for _ in range(num_layers):
             layer = NequipLayer(
                 in_irreps=in_irreps,
@@ -206,7 +206,8 @@ class NequipBlock(nnx.Module):
                 rngs=rngs,
             )
             in_irreps = layer.out_irreps
-            self.layers.append(layer)
+            layers.append(layer)
+        self.layers = nnx.List(layers)
 
         if in_irreps != node_irreps:
             logger.warning("Unnecessary node irreps: %s. Irreps used: %s.", node_irreps, in_irreps)

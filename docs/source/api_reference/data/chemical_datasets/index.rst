@@ -14,5 +14,6 @@ shuffle, split and load datasets into lists containing
     :maxdepth: 1
 
     dataset
+    dataset_creation
     hdf5_dataset
     reader_utils

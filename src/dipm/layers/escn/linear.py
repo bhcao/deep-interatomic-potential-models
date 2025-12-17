@@ -121,8 +121,8 @@ class MoLE(nnx.Module, PrecallInterface):
         else:
             # TODO(bhcao): Very slow, but in jax.jit dynamic slice is not supported. Consider to
             # align shape of every sample in th batch then apply reshape.
-            batch = jnp.repeat(jnp.arange(len(n_node)), n_node, total_repeat_length=len(inputs))
-            result = jnp.einsum("b...i,bio->b...o", inputs, kernel[batch])
+            kernel = jnp.repeat(kernel, n_node, total_repeat_length=len(inputs), axis=0)
+            result = jnp.einsum("b...i,bio->b...o", inputs, kernel)
 
         if bias is not None:
             result += bias
