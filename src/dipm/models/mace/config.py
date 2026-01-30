@@ -18,7 +18,7 @@ from typing_extensions import Self
 
 from dipm.layers import (
     Activation,
-    RadialEnvelope,
+    CutoffFunction,
 )
 from dipm.typing import Irreps, NonNegativeInt, PositiveInt
 from dipm.models.force_model import ForceModelConfig
@@ -94,7 +94,7 @@ class MaceConfig(ForceModelConfig):
     include_pseudotensors: bool = True
     num_bessel: PositiveInt = 8
     activation: Activation = Activation.SILU
-    radial_envelope: RadialEnvelope = RadialEnvelope.POLYNOMIAL
+    radial_envelope: CutoffFunction = CutoffFunction.POLYNOMIAL
     polynomial_degree: PositiveInt = 5
     symmetric_tensor_product_basis: bool = False
     atomic_energies: str | dict[int, float] | None = None

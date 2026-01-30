@@ -22,11 +22,11 @@ from flax.typing import Dtype
 
 from dipm.data.dataset_info import DatasetInfo
 from dipm.layers import (
-    CosineCutoff,
     get_activation_fn,
     get_veclayernorm_fn,
-    get_rbf_cls,
+    get_radial_basis_cls,
 )
+from dipm.layers.cutoff import CosineCutoff
 from dipm.models.force_model import ForceModel
 from dipm.models.atomic_energies import get_atomic_energies
 from dipm.models.liten.blocks import EnergyHead
@@ -80,6 +80,8 @@ class LiTEN(ForceModel):
             num_layers=self.config.num_layers,
             num_channels=self.config.num_channels,
             num_rbf=self.config.num_rbf,
+            charge_range=self.config.charge_range,
+            spin_range=self.config.spin_range,
             rbf_type="expnorm",
             trainable_rbf=self.config.trainable_rbf,
             activation=self.config.activation,
@@ -107,6 +109,8 @@ class LiTEN(ForceModel):
         *,
         n_node: jax.Array,
         task: jax.Array | None = None,
+        charge: jax.Array | None = None,
+        spin: jax.Array | None = None,
         **_kwargs,
     ) -> jax.Array:
         # edge connect
@@ -114,7 +118,8 @@ class LiTEN(ForceModel):
         norm_edge_vectors = edge_vectors / (edge_distances[:, None] + 1e-8) # ViSNet style
 
         node_energies = self.liten_block(
-            norm_edge_vectors, edge_distances, node_species, senders, receivers, n_node, task
+            norm_edge_vectors, edge_distances, node_species, senders, receivers, n_node,
+            task, charge, spin
         )
 
         mean = self.dataset_info.scaling_mean
@@ -137,6 +142,8 @@ class LiTENBlock(nnx.Module):
         num_layers: int = 6,
         num_channels: int = 256,
         num_rbf: int = 32,
+        charge_range: int | None = None,
+        spin_range: int | None = None,
         rbf_type: str = "expnorm",
         trainable_rbf: bool = False,
         activation: str = "silu",
@@ -151,9 +158,10 @@ class LiTENBlock(nnx.Module):
         self.node_embedding = nnx.Embed(
             num_species, num_channels, dtype=dtype, param_dtype=param_dtype, rngs=rngs
         )
-        self.radial_embedding = get_rbf_cls(rbf_type)(
+        self.radial_embedding = get_radial_basis_cls(rbf_type)(
             cutoff, num_rbf, trainable_rbf, dtype=dtype, param_dtype=param_dtype, rngs=rngs
         )
+        self.cutoff_fn = CosineCutoff(cutoff)
         self.edge_embedding = nnx.Linear(
             num_rbf, num_channels, dtype=dtype, param_dtype=param_dtype, rngs=rngs
         )
@@ -182,6 +190,19 @@ class LiTENBlock(nnx.Module):
             num_channels, num_tasks, activation, dtype=dtype, param_dtype=param_dtype, rngs=rngs
         )
 
+        if charge_range is not None:
+            self.charge_embedding = nnx.Embed(
+                2 * charge_range + 1, num_channels, dtype=dtype, param_dtype=param_dtype, rngs=rngs
+            )
+
+        if spin_range is not None:
+            self.spin_embedding = nnx.Embed(
+                spin_range, num_channels, dtype=dtype, param_dtype=param_dtype, rngs=rngs
+            )
+
+        self.charge_range = charge_range
+        self.spin_range = spin_range
+
     def __call__(
         self,
         norm_edge_vectors: jax.Array,  # [n_edges, 3]
@@ -191,11 +212,28 @@ class LiTENBlock(nnx.Module):
         receivers: jax.Array,  # [n_edges]
         n_node: jax.Array,  # [batch_size]
         task: jax.Array | None = None,
+        charge: jax.Array | None = None,
+        spin: jax.Array | None = None,
     ) -> jax.Array:
 
         # Embedding Layers
         node_scalar = self.node_embedding(node_species) # [n_nodes, num_channels]
-        edge_feats = self.radial_embedding(edge_distances)
+
+        if self.charge_range is not None:
+            assert charge is not None
+            charge_embed = self.charge_embedding(charge + self.charge_range)
+            node_scalar += jnp.repeat(
+                charge_embed, n_node, axis=0, total_repeat_length=len(node_scalar)
+            )
+
+        if self.spin_range is not None:
+            assert spin is not None
+            spin_embed = self.spin_embedding(spin)
+            node_scalar += jnp.repeat(
+                spin_embed, n_node, axis=0, total_repeat_length=len(node_scalar)
+            )
+
+        edge_feats = self.radial_embedding(edge_distances) * self.cutoff_fn(edge_distances)[:, None]
         edge_feats = self.edge_embedding(edge_feats)
 
         # [n_nodes, 3, num_channels]

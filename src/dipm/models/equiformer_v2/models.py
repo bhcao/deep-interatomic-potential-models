@@ -20,7 +20,7 @@ import jax
 import jax.numpy as jnp
 
 from dipm.layers import (
-    get_rbf_cls,
+    get_radial_basis_cls,
     GraphDropPath,
 )
 from dipm.layers.escn import (
@@ -235,7 +235,7 @@ class EquiformerV2Block(nnx.Module):
         )
 
         # Function used to measure the distances between atoms
-        self.distance_expansion = get_rbf_cls(rbf_type)(
+        self.distance_expansion = get_radial_basis_cls(rbf_type)(
             cutoff,
             num_rbf,
             trainable=trainable_rbf,

@@ -21,6 +21,7 @@ from typing import TypeVar
 import jax
 import jax.numpy as jnp
 import yaml
+import flax
 from flax import nnx
 from safetensors.flax import safe_open
 
@@ -108,6 +109,14 @@ def main(args):
     else:
         train_set, validation_set, test_set = manager.get_loaders()
 
+    model_class = None
+    if "target" in config["model"]:
+        model_class = KNOWN_MODELS.get(config["model"]["target"].lower().replace('_', ''))
+        # If target is not known, try to import it from a package.
+        if model_class is None:
+            module_path, cls_name = config["model"]["target"].rsplit(".", 1)
+            model_class = getattr(importlib.import_module(module_path), cls_name)
+
     # Create the model
     if 'pretrained' in config['model']:
         pretrained = config['model']['pretrained']
@@ -123,16 +132,12 @@ def main(args):
             params_filters.append(UnseenElementsParamsFilter(elements_to_drop))
         force_field = load_model(
             pretrained,
+            model_class,
             dtype=get_dtype(config["train"].get("dtype", None)),
             params_filters=params_filters,
         )
         logger.info("Pretrained model loaded from %s.", pretrained)
     else:
-        model_class = KNOWN_MODELS.get(config["model"]["target"].lower().replace('_', ''))
-        # If target is not known, try to import it from a package.
-        if model_class is None:
-            module_path, cls_name = config["model"]["target"].rsplit(".", 1)
-            model_class = getattr(importlib.import_module(module_path), cls_name)
         force_model = model_class(
             create_config(model_class.Config, config["model"]),
             dataset_info,
@@ -194,6 +199,8 @@ def main(args):
     training_loop.test(test_set)
 
     optimized_force_field = training_loop.best_model
+    if should_parallelize:
+        optimized_force_field = flax.jax_utils.unreplicate(optimized_force_field)
     save_model(config["train"]["save_path"], optimized_force_field)
     logger.info("Model saved to %s.", config["train"]["save_path"])
 

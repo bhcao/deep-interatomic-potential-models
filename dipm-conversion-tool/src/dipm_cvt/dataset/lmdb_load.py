@@ -101,7 +101,7 @@ def _load_pyg_data(data_bytes, ref_energies=None):
     if hasattr(data, "charge"):
         data_dict["total_charge"] = data.charge.numpy()
     if hasattr(data, "multiplicity"):
-        data_dict["total_spin"] = data.multiplicity.numpy()
+        data_dict["total_spin"] = data.multiplicity.numpy() - 1
 
     if ref_energies is not None and data_dict.get("energy") is not None:
         data_dict["energy"] += ref_energies[f'random{data.sid}']

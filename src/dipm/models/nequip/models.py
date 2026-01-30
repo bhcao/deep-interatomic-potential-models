@@ -32,9 +32,9 @@ from dipm.layers import (
     FullyConnectedTensorProduct,
     RadialEmbeddingLayer,
     get_activation_fn,
-    get_radial_envelope_cls,
-    get_radial_basis_fn,
+    get_cutoff_cls,
 )
+from dipm.layers.radial_basis import BesselBasis
 from dipm.models.force_model import ForceModel
 from dipm.models.nequip.config import NequipConfig
 from dipm.models.nequip.nequip_helpers import prod, tp_path_exists
@@ -88,7 +88,7 @@ class Nequip(ForceModel):
 
         num_species = len(self.dataset_info.atomic_energies_map)
 
-        radial_envelope_fun = get_radial_envelope_cls(self.config.radial_envelope)(r_max)
+        radial_envelope_fun = get_cutoff_cls(self.config.radial_envelope)(r_max)
 
         nequip_kwargs = dict(
             avg_num_neighbors=avg_num_neighbors,
@@ -104,7 +104,6 @@ class Nequip(ForceModel):
             use_residual_connection=True,
             nonlinearities={"e": "silu", "o": "tanh"},
             avg_r_min=None,
-            radial_basis=get_radial_basis_fn("bessel"),
             radial_envelope=radial_envelope_fun,
             scalar_mlp_std=self.config.scalar_mlp_std,
         )
@@ -155,7 +154,6 @@ class NequipBlock(nnx.Module):
         use_residual_connection: bool,
         nonlinearities: str | dict[str, str],
         avg_r_min: float,
-        radial_basis: Callable[[jax.Array], jax.Array],
         radial_envelope: Callable[[jax.Array], jax.Array],
         *,
         dtype: Dtype | None = None,
@@ -179,9 +177,8 @@ class NequipBlock(nnx.Module):
         self.radial_embeddings = RadialEmbeddingLayer(
             r_max=r_max,
             avg_r_min=avg_r_min,
-            basis_functions=radial_basis,
+            basis_functions=BesselBasis(r_max, num_bessel),
             envelope_function=radial_envelope,
-            num_bessel=num_bessel,
         )
 
         # Irreps are simplified from node_irreps to in_irreps since some are zero

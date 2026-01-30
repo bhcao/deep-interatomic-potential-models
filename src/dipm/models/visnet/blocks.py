@@ -34,10 +34,8 @@ from flax import nnx
 from flax.typing import Dtype
 from flax.linen import initializers
 
-from dipm.layers import (
-    CosineCutoff,
-    get_activation_fn,
-)
+from dipm.layers import get_activation_fn
+from dipm.layers.cutoff import CosineCutoff
 
 
 class Sphere(nnx.Module):

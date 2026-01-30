@@ -13,7 +13,7 @@
 # limitations under the License.
 
 from dipm.layers.activations import Activation
-from dipm.layers.radial_embeddings import RadialEnvelope
+from dipm.layers.cutoff import CutoffFunction
 from dipm.typing import Irreps, NonNegativeInt, PositiveFloat, PositiveInt
 from dipm.models.force_model import ForceModelConfig
 
@@ -57,7 +57,7 @@ class NequipConfig(ForceModelConfig):
     radial_net_nonlinearity: Activation = Activation.SILU
     radial_net_n_hidden: PositiveInt = 64
     radial_net_n_layers: PositiveInt = 2
-    radial_envelope: RadialEnvelope = RadialEnvelope.POLYNOMIAL
+    radial_envelope: CutoffFunction = CutoffFunction.POLYNOMIAL
     scalar_mlp_std: PositiveFloat = 4.0
     atomic_energies: str | dict[int, float] | None = None
     avg_num_neighbors: float | None = None

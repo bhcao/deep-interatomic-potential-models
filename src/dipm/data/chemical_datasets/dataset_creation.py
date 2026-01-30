@@ -171,11 +171,13 @@ class DatasetCreation:
             length (int | None, optional): Length of slice. Defaults to len(dataset).
         """
 
-        if num_to_load is None:
-            return dataset
-
         if length is None:
-            length = len(dataset)
+            length = len(dataset) - start
+
+        if num_to_load is None:
+            if start != 0 or length != len(dataset):
+                return Subset(dataset, start, length)
+            return dataset
 
         num_to_load = _get_num_to_load(num_to_load, length)
 

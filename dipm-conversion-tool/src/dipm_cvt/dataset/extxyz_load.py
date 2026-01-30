@@ -58,16 +58,30 @@ def load_extxyz_dataset(extxyz_path):
         }
         try: # only for test set
             data_dict["forces"] = atoms.get_forces() # eV / Ang
-        except calculator.PropertyNotImplementedError:
-            pass
+        except (calculator.PropertyNotImplementedError, RuntimeError):
+            if "REF_forces" in atoms.arrays:
+                data_dict["forces"] = atoms.arrays["REF_forces"] # eV / Ang
         try: # only for test set
             data_dict["energy"] = atoms.get_potential_energy() # eV
-        except calculator.PropertyNotImplementedError:
-            pass
+        except (calculator.PropertyNotImplementedError, RuntimeError):
+            if "REF_energy" in atoms.info:
+                data_dict["energy"] = atoms.info["REF_energy"] # eV
         try:
             data_dict["stress"] = atoms.get_stress(voigt=False) # eV / Ang^3, 3x3 matrix
-        except calculator.PropertyNotImplementedError:
+        except (calculator.PropertyNotImplementedError, RuntimeError):
             pass
+
+        if "charge" in atoms.info:
+            data_dict["total_charge"] = np.array(atoms.info["charge"])
+        elif "total_charge" in atoms.info:
+            data_dict["total_charge"] = np.array(atoms.info["total_charge"])
+
+        if "multiplicity" in atoms.info:
+            data_dict["total_spin"] = np.array(atoms.info["multiplicity"]) - 1
+        elif "spin" in atoms.info:
+            data_dict["total_spin"] = np.array(atoms.info["spin"])
+        elif "total_spin" in atoms.info:
+            data_dict["total_spin"] = np.array(atoms.info["total_spin"])
 
         data.append(data_dict)
 

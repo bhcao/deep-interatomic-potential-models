@@ -123,7 +123,7 @@ def get_neighborhood(
         senders_unit_shifts = senders_unit_shifts[nonmax_idx]
 
     # If we are not having PBCs, then use shifts of zero
-    shifts = senders_unit_shifts if any(pbc) else np.array([[0] * 3] * len(senders))
+    shifts = senders_unit_shifts if any(pbc) else np.zeros((len(senders), 3))
 
     # See docstring of functions get_edge_relative_vectors() and
     # get_edge_vectors() on how these return values are used

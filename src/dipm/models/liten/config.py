@@ -25,6 +25,10 @@ class LiTENConfig(ForceModelConfig):
         num_channels: The number of channels. Default is 256.
         num_heads: Number of heads in the attention block. Default is 8.
         num_rbf: Number of basis functions used in the embedding block. Default is 32.
+        charge_range: The range of possible charge values ([-charge_range, charge_range]).
+                      Default is None which means no charge embedding.
+        spin_range: The range of possible spin values ([0, spin_range]). Default is None
+                    which means no spin embedding.
         trainable_rbf: Whether to add learnable weights to each of the radial embedding
                        basis functions. Default is ``False``.
         activation: Activation function for the output block. Options are "silu"
@@ -44,6 +48,8 @@ class LiTENConfig(ForceModelConfig):
     num_channels: PositiveInt = 256
     num_heads: PositiveInt = 8
     num_rbf: PositiveInt = 32
+    charge_range: int | None = None
+    spin_range: int | None = None
     trainable_rbf: bool = False
     activation: Activation = Activation.SILU
     atomic_energies: str | dict[int, float] | None = None

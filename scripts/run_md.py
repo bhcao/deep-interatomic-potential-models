@@ -13,6 +13,7 @@
 # with this program. If not, see <https://www.gnu.org/licenses/>.
 
 import argparse
+import importlib
 import os
 from pathlib import Path
 import logging
@@ -45,6 +46,7 @@ class MDLogger:
             io.write(pdbfile, atoms, format=self.format)
             self.pdbfiles.append(pdbfile)
         self.fmt = "%10d %12.4f %6.1f\n"
+        self.last_positions_len = 0
 
     def __del__(self):
         for logfile in self.logfiles:
@@ -57,18 +59,25 @@ class MDLogger:
             self.logfiles, self.pdbfiles, state.positions, state.kinetic_energy,
             state.temperature, self.structures
         ):
-            frame = structure.copy()
-            frame.set_positions(position[-1])
-            io.write(pdbfile, frame, format=self.format)
+            for i in range(self.last_positions_len, len(position)):
+                frame = structure.copy()
+                frame.set_positions(position[i])
+                io.write(pdbfile, frame, format=self.format)
             pdbfile.flush()
             logfile.write(self.fmt % (state.step, e_kin[-1], temp[-1]))
             logfile.flush()
+        self.last_positions_len = len(state.positions[0])
 
 # pylint: disable=redefined-outer-name
 def main(args):
     logger.info("Loading model...")
 
-    force_field = load_model(args.model)
+    model_class = None
+    if args.model_target is not None:
+        module_path, cls_name = args.model_target.rsplit(".", 1)
+        model_class = getattr(importlib.import_module(module_path), cls_name)
+
+    force_field = load_model(args.model, model_class)
 
     logger.info("Loading structures from files...")
 
@@ -78,7 +87,7 @@ def main(args):
     path = Path(args.path)
     if path.is_file():
         structures.append(io.read(path))
-        structures_names.append(path.name)
+        structures_names.append(path.stem)
     else:
         for name in os.listdir(path):
             if (path / name).suffix in ['.pdb', '.xyz', '.extxyz']:
@@ -88,12 +97,14 @@ def main(args):
     num_steps = int(round(args.run_ns * 1e6 / args.timestep_fs))
     log_interval = int(round(args.log_interval_fs / args.timestep_fs))
     num_episodes = num_steps // log_interval
+    snapshot_interval = int(round(args.snapshot_interval_fs / args.timestep_fs))
     config = JaxMDSimulationEngine.Config(
         timestep_fs=args.timestep_fs,
         num_steps=num_steps,
         num_episodes=num_episodes,
-        snapshot_interval=log_interval,
+        snapshot_interval=snapshot_interval,
         temperature_kelvin=args.temperature,
+        task=args.task,
     )
 
     batch_size = args.batch_size or len(structures)
@@ -146,6 +157,13 @@ if __name__ == "__main__":
         help="Path to the model to use for the simulation.",
     )
     parser.add_argument(
+        "--model_target",
+        type=str,
+        default=None,
+        help="Module and class of the model provided through `--model`. Required when using a "
+             "custom model.",
+    )
+    parser.add_argument(
         "--path",
         type=str,
         required=True,
@@ -189,10 +207,24 @@ if __name__ == "__main__":
         help="Interval of logging the simulation in fs, default is 100fs.",
     )
     parser.add_argument(
+        "--snapshot_interval_fs",
+        type=float,
+        default=100.0,
+        help="Interval of saving the structures in fs, default is 100fs. Snapshots are only "
+             "appended during logging. So multiple snapshots will be output at once if this "
+             "argument is smaller than `log_interval_fs`.",
+    )
+    parser.add_argument(
         "--temperature",
         type=float,
         default=300.0,
         help="Temperature of the simulation in Kelvin, default is 300K.",
+    )
+    parser.add_argument(
+        "--task",
+        type=str,
+        default=None,
+        help="Task to run the model on, default is None.",
     )
     args = parser.parse_args()
 

@@ -31,10 +31,9 @@ from dipm.layers import (
     Linear,
     FullyConnectedTensorProduct,
     RadialEmbeddingLayer,
-    RadialEnvelope,
-    get_radial_basis_fn,
-    get_radial_envelope_cls,
+    get_cutoff_cls,
 )
+from dipm.layers.radial_basis import BesselBasis
 from dipm.models.mace.blocks import (
     LinearNodeEmbeddingLayer,
     EquivariantProductBasisBlock,
@@ -97,11 +96,9 @@ class Mace(ForceModel):
 
         num_species = len(self.dataset_info.atomic_energies_map)
 
-        radial_envelope_cls = get_radial_envelope_cls(self.config.radial_envelope)
-        if self.config.radial_envelope == RadialEnvelope.POLYNOMIAL:
-            radial_envelope_fun = radial_envelope_cls(r_max, exponent=self.config.polynomial_degree)
-        else:
-            radial_envelope_fun = radial_envelope_cls(r_max)
+        radial_envelope_fun = get_cutoff_cls(self.config.radial_envelope)(
+            r_max, exponent=self.config.polynomial_degree
+        )
 
         node_symmetry = self.config.node_symmetry
         if node_symmetry is None:
@@ -120,7 +117,6 @@ class Mace(ForceModel):
             avg_r_min=avg_r_min,
             num_species=num_species,
             num_bessel=self.config.num_bessel,
-            radial_basis=get_radial_basis_fn("bessel"),
             radial_envelope=radial_envelope_fun,
             symmetric_tensor_product_basis=self.config.symmetric_tensor_product_basis,
             off_diagonal=False,
@@ -180,7 +176,6 @@ class MaceBlock(nnx.Module):
         readout_mlp_irreps: e3nn.Irreps,  # Hidden irreps of the MLP in last readout, default 16x0e
         avg_num_neighbors: float,
         num_species: int,
-        radial_basis: Callable[[jax.Array], jax.Array],
         radial_envelope: Callable[[jax.Array], jax.Array],
         num_channels: int,
         num_bessel: int = 8,
@@ -216,9 +211,8 @@ class MaceBlock(nnx.Module):
         self.radial_embed = RadialEmbeddingLayer(
             r_max=r_max,
             avg_r_min=avg_r_min,
-            basis_functions=radial_basis,
+            basis_functions=BesselBasis(r_max, num_bessel),
             envelope_function=radial_envelope,
-            num_bessel=num_bessel,
         )
         self.species_embed = None
         if species_embedding_dim is not None:

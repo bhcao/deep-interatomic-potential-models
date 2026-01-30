@@ -19,6 +19,7 @@ from dipm.models.visnet.models import Visnet
 from dipm.models.liten.models import LiTEN
 from dipm.models.equiformer_v2.models import EquiformerV2
 from dipm.models.uma.models import UMA
+from dipm.models.so3krates.models import So3krates
 
 KNOWN_MODELS = {
     "mace": Mace,
@@ -27,4 +28,5 @@ KNOWN_MODELS = {
     "liten": LiTEN,
     "equiformerv2": EquiformerV2,
     "uma": UMA,
+    "so3krates": So3krates,
 }

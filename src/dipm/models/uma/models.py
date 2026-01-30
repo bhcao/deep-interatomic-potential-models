@@ -27,10 +27,8 @@ from flax.nnx.nn.initializers import uniform
 from flax.typing import Dtype
 
 from dipm.data.dataset_info import DatasetInfo
-from dipm.layers import (
-    get_rbf_cls,
-    get_radial_envelope_cls,
-)
+from dipm.layers.radial_basis import GaussianBasis
+from dipm.layers.cutoff import PolynomialCutoff
 from dipm.layers.escn import (
     MappingCoefficients,
     SO3Rotation,
@@ -298,7 +296,7 @@ class UMABlock(nnx.Module, PrecallInterface):
         )
 
         # edge distance embedding
-        self.distance_expansion = get_rbf_cls("gauss")(
+        self.distance_expansion = GaussianBasis(
             cutoff,
             num_rbf,
             rbf_width=2.0,
@@ -334,7 +332,7 @@ class UMABlock(nnx.Module, PrecallInterface):
             rngs=rngs,
         )
 
-        self.envelope = get_radial_envelope_cls("polynomial_envelope")(self.cutoff)
+        self.envelope = PolynomialCutoff(self.cutoff)
 
         # Initialize the blocks for each layer
         self.layers = nnx.List([

@@ -29,9 +29,9 @@ def _expand_path_to_list(paths) -> list[Path]:
     for path in paths:
         path = Path(path).absolute()
         if path.is_dir():
-            for file in path.glob("*.hdf5"):
+            for file in path.rglob("*.hdf5"):
                 expanded.append(file)
-            for file in path.glob("*.h5"):
+            for file in path.rglob("*.h5"):
                 expanded.append(file)
         else:
             expanded.append(path)

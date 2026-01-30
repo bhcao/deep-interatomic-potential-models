@@ -1,5 +1,13 @@
 # Changelog
 
+## Release 0.0.7
+
+- Fixing support for custom models.
+- Adding charge and spin support for the `LiTEN` model.
+- Refactoring radial basis function and cutoff / radial envelope function. Removing
+  wrong added cutoff of EquiformerV2 and UMA.
+- Adding So3krates model.
+
 ## Release 0.0.6
 
 - Bumping minimum jax/flax/orbax/matscipy/numpy version and fixing compatibility

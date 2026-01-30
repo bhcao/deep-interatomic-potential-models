@@ -101,7 +101,6 @@ class ForceFieldPredictor(nnx.Module):
         strains = jnp.zeros_like(graph.globals.cell)
         if self.force_model.config.force_head:
             if self.predict_stress:
-                # Starting from flax 0.12.1, calling bound method in nnx.grad is deprecated.
                 pseudo_stress, prediction = nnx.grad(
                     compute_energy_and_forces, argnums=1, has_aux=True
                 )(graph.nodes.positions, strains, graph, rngs, ctx)
@@ -248,7 +247,8 @@ class ForceFieldPredictor(nnx.Module):
             )
 
         kwargs = {
-            "n_node": graph.n_node, "rngs": rngs, "task": graph.globals.task
+            "n_node": graph.n_node, "rngs": rngs, "task": graph.globals.task,
+            "charge": graph.globals.charge, "spin": graph.globals.spin,
         }
         if isinstance(self.force_model, PrecallInterface):
             if ctx is None:

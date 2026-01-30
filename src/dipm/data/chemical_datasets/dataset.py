@@ -191,6 +191,12 @@ class Subset(Dataset[_T_co]):
             return cls._distribute_indices(dataset, np.array(start_or_indices, dtype=int))
         return cls._distribute_interval(dataset, start_or_indices, length)
 
+    # Make it pickleable
+    def __reduce__(self):
+        if self.indices is not None:
+            return (self.__class__, (self.dataset, self.indices))
+        return (self.__class__, (self.dataset, self.start, self.length))
+
     @classmethod
     def _distribute_interval(cls, dataset: ConcatDataset, start: int, length: int):
         new_datasets = []
@@ -243,7 +249,7 @@ class Subset(Dataset[_T_co]):
     @staticmethod
     def _is_indices_mode(start_or_indices, length):
         if length is None:
-            if not isinstance(start_or_indices, Sequence):
+            if not isinstance(start_or_indices, (Sequence, np.ndarray)):
                 raise TypeError("Arguments must be (start, length) or (indices,).")
             return True
 

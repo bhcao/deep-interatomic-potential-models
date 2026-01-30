@@ -39,11 +39,11 @@ from dipm.data.dataset_info import DatasetInfo
 from dipm.models.atomic_energies import get_atomic_energies
 from dipm.models.force_model import ForceModel
 from dipm.layers import (
-    CosineCutoff,
     get_activation_fn,
     get_veclayernorm_fn,
-    get_rbf_cls,
+    get_radial_basis_cls,
 )
+from dipm.layers.cutoff import CosineCutoff
 from dipm.models.visnet.blocks import (
     EdgeEmbedding,
     EquivariantScalar,
@@ -183,9 +183,10 @@ class VisnetBlock(nnx.Module):
         self.node_embedding = nnx.Embed(
             num_species, num_channels, dtype=dtype, param_dtype=param_dtype, rngs=rngs
         )
-        self.radial_embedding = get_rbf_cls(rbf_type)(
+        self.radial_embedding = get_radial_basis_cls(rbf_type)(
             cutoff, num_rbf, trainable_rbf, dtype=dtype, param_dtype=param_dtype, rngs=rngs
         )
+        self.cutoff_fn = CosineCutoff(cutoff)
         self.spherical_embedding = Sphere(lmax)
 
         self.neighbor_embedding = NeighborEmbedding(
@@ -237,7 +238,7 @@ class VisnetBlock(nnx.Module):
         node_feats = self.node_embedding(node_species)  # Is that necessary?
 
         # Seems like doubled from within the neighbor embedding module
-        edge_feats = self.radial_embedding(distances)
+        edge_feats = self.radial_embedding(distances) * self.cutoff_fn(distances)[:, None]
 
         spherical_feats = self.spherical_embedding(
             edge_vectors / (distances[:, None] + 1e-8)
