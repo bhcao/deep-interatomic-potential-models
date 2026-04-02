@@ -175,6 +175,9 @@ class DatasetManagerConfig(pydantic.BaseModel):
         shuffle: Whether to shuffle the data before splitting and loading. Default is ``True``.
         num_workers: Number of subprocesses to load data. If ``None``, will use 
                      ``min(num_files, num_cpus)`` subprocesses. Default is ``None``.
+        use_shared_memory: Whether to use shared memory for data loading. If ``None``,
+                           will use shared memory if multiprocessing is enabled.
+                           Default is ``None``.
         max_n_node: This value will be multiplied with the batch size to determine the
                     maximum number of nodes we allow in a batch.
                     Note that a batch will always contain max_n_node * batch_size
@@ -195,6 +198,8 @@ class DatasetManagerConfig(pydantic.BaseModel):
                     the number of graphs is reached. Default is 16.
         num_batch_prefetch: Number of batched graphs to prefetch while iterating
                             over batches. Default is 128.
+        load_into_memory: Whether to load the entire dataset into memory. Default is
+                          ``False``.
         use_formation_energies: Whether the energies in the dataset should already be
                                 transformed to subtract the average atomic energies.
                                 Default is ``False``. Make sure that if you set this
@@ -212,6 +217,7 @@ class DatasetManagerConfig(pydantic.BaseModel):
 
     shuffle: bool = True
     num_workers: NonNegativeInt | None = None
+    use_shared_memory: bool | None = None
 
     max_n_node: PositiveInt | None = None
     max_n_edge: PositiveInt | None = None
@@ -219,6 +225,7 @@ class DatasetManagerConfig(pydantic.BaseModel):
     batch_size: PositiveInt = 16
 
     num_batch_prefetch: NonNegativeInt = 128
+    load_into_memory: bool = False
 
     use_formation_energies: bool = False
     drop_unseen_elements: bool = False

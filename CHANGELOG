@@ -1,5 +1,15 @@
 # Changelog
 
+## Release 0.0.8
+
+- Making So3krates model perform better.
+- Fixing Dataloader for `prefetch_factor==0` situation.
+- Enabling loading of entire dataset into memory for smaller datasets.
+- Adding shared memory support for multiprocessing.
+- Fixing arrays that were constants during JIT but were mistakenly encapsulated
+  in `nnx.Cache`.
+- Replacing `PrecallInterface` with `nnx.view` and `precall`.
+
 ## Release 0.0.7
 
 - Fixing support for custom models.

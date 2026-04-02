@@ -287,7 +287,6 @@ class JaxMDSimulationEngine(SimulationEngine):
     ) -> ModelEnergyFun | ModelForcesFun:
         """This function returns the core force calculate function compatible with
         JAX-MD and also compatible with batched simulations if requested."""
-        force_field_model.eval()
 
         def calc_func(
             positions: np.ndarray,
@@ -296,13 +295,12 @@ class JaxMDSimulationEngine(SimulationEngine):
             force_field: ForceFieldPredictor,
             is_batched: bool,
             split_idx: list[int] | None,
-            ctx: dict | None,
         ) -> np.ndarray | list[np.ndarray]:
             updated_graph = update_graph_in_simulation_step(
                 system_state, positions, base_graph, is_batched
             )
 
-            force_field_output = force_field(updated_graph, ctx=ctx)
+            force_field_output = force_field(updated_graph)
             output_forces = jnp.delete(force_field_output.forces, -1, axis=0)
             output_forces = output_forces * KCAL_PER_MOL_PER_ELECTRON_VOLT
 
@@ -318,7 +316,7 @@ class JaxMDSimulationEngine(SimulationEngine):
             forces_split_idx = [int(sum(sizes[:i])) for i in range(1, len(sizes))]
 
         # Not jitted as it is only called once
-        ctx = force_field_model.precall(graph)
+        force_field_model.evaluate(graph)
 
         return functools.partial(
             calc_func,
@@ -326,7 +324,6 @@ class JaxMDSimulationEngine(SimulationEngine):
             force_field=force_field_model,
             is_batched=is_batched_sim,
             split_idx=forces_split_idx,
-            ctx=ctx,
         )
 
     def _get_initial_jax_md_state(

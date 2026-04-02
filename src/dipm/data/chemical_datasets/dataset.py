@@ -1,4 +1,4 @@
-# Copyright 2025 Cao Bohan
+# Copyright 2025 Zhongguancun Academy
 #
 # DIPM is free software: you can redistribute it and/or modify it under the terms
 # of the GNU Lesser General Public License as published by the Free Software
@@ -64,15 +64,8 @@ class ConcatDataset(Dataset[_T_co]):
         self.cum_lengths = np.cumsum(self.lengths)
         self.length = int(self.cum_lengths[-1])
 
-        # parallel loader, will be set by DataLoader
-        self._loader = None
-
     def _load(self, indices, ds_indices):
-        """Load data from the datasets in parallel or sequentially."""
-        if self._loader is not None:
-            return self._loader(zip(ds_indices, indices))
-
-        # sequential
+        """Load data from the datasets sequentially."""
         results = []
         for idx, ds_idx in zip(indices, ds_indices):
             data = self.datasets[ds_idx][idx]
@@ -92,7 +85,7 @@ class ConcatDataset(Dataset[_T_co]):
         return self._get_item(index)
 
     def _get_item(self, index: int) -> _T_co:
-        '''Get one item by index.'''
+        """Get one item by index."""
         dataset_idx = np.searchsorted(self.cum_lengths, index, side="right")
         if dataset_idx == 0:
             local_idx = index
@@ -157,81 +150,21 @@ class ConcatDataset(Dataset[_T_co]):
         return self.length
 
     def release(self):
-        '''Release parallel loading resources and dataset file handles.'''
-        if self._loader is not None:
-            self._loader.close()
+        """Release dataset file handles."""
         for ds in self.datasets:
             ds.release()
 
 
 class Subset(Dataset[_T_co]):
-    """
-    Subset of a dataset with a given slice.
-    
-    If the dataset is a ConcatDataset, Subset will act on each sub-dataset of ConcatDataset and
-    return a new ConcatDataset with all its sub-datasets sliced. This is to enable parallel loading
-    using ConcatDataset, and its effect is completely equivalent to direct Subset.
-    """
+    """Subset of a dataset with a given slice."""
 
     dataset: Dataset[_T_co]
-
-    @overload
-    def __new__(cls, dataset: ConcatDataset, indices: Sequence[int]) -> ConcatDataset: ...
-    @overload
-    def __new__(cls, dataset: Dataset, indices: Sequence[int]) -> "Subset": ...
-    @overload
-    def __new__(cls, dataset: ConcatDataset, start: int, length: int) -> ConcatDataset:...
-    @overload
-    def __new__(cls, dataset: Dataset, start: int, length: int) -> "Subset": ...
-    def __new__(cls, dataset, start_or_indices, length=None):
-        if not isinstance(dataset, ConcatDataset):
-            return super().__new__(cls)
-
-        if cls._is_indices_mode(start_or_indices, length):
-            return cls._distribute_indices(dataset, np.array(start_or_indices, dtype=int))
-        return cls._distribute_interval(dataset, start_or_indices, length)
 
     # Make it pickleable
     def __reduce__(self):
         if self.indices is not None:
             return (self.__class__, (self.dataset, self.indices))
         return (self.__class__, (self.dataset, self.start, self.length))
-
-    @classmethod
-    def _distribute_interval(cls, dataset: ConcatDataset, start: int, length: int):
-        new_datasets = []
-        for ds, ds_end_global in zip(dataset.datasets, dataset.cum_lengths):
-            ds_start_global = ds_end_global - len(ds)
-
-            # intersection of [start, stop) and [ds_start_global, ds_end_global)
-            if start <= ds_start_global and start + length >= ds_end_global:
-                new_datasets.append(ds)
-                continue  # full overlap
-
-            overlap_start = max(start, ds_start_global)
-            overlap_end = min(start + length, ds_end_global)
-            if overlap_start >= overlap_end:
-                continue  # no overlap
-
-            local_start = overlap_start - ds_start_global
-            local_len = overlap_end - overlap_start
-            new_datasets.append(cls(ds, local_start, local_len))
-
-        return ConcatDataset(new_datasets)
-
-    @classmethod
-    def _distribute_indices(cls, dataset: ConcatDataset, indices: np.ndarray):
-        new_datasets = []
-        for ds, ds_end_global in zip(dataset.datasets, dataset.cum_lengths):
-            ds_start_global = ds_end_global - len(ds)
-
-            mask = (indices >= ds_start_global) & (indices < ds_end_global)
-            local_idx = indices[mask] - ds_start_global
-            if len(local_idx) == 0:
-                continue
-            new_datasets.append(cls(ds, local_idx))
-
-        return ConcatDataset(new_datasets)
 
     def __init__(
         self, dataset: Dataset, start_or_indices: int | Sequence[int], length: int | None = None
@@ -277,5 +210,5 @@ class Subset(Dataset[_T_co]):
         return self.length
 
     def release(self):
-        '''Release dataset resources.'''
+        """Release dataset resources."""
         self.dataset.release()

@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-# Modifications Copyright 2025 Cao Bohan
+# Modifications Copyright 2025 Zhongguancun Academy
 #
 # DIPM is free software: you can redistribute it and/or modify it under the terms
 # of the GNU Lesser General Public License as published by the Free Software
@@ -38,7 +38,7 @@ from dipm.layers.dtypes import promote_dtype
 
 
 class FullyConnectedTensorProduct(nnx.Module):
-    '''Flax module of FunctionalFullyConnectedTensorProduct'''
+    """Flax module of FunctionalFullyConnectedTensorProduct"""
 
     def __init__(
         self,

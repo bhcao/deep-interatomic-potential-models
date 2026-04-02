@@ -1,4 +1,4 @@
-# Copyright 2025 Cao Bohan
+# Copyright 2025 Zhongguancun Academy
 #
 # DIPM is free software: you can redistribute it and/or modify it under the terms
 # of the GNU Lesser General Public License as published by the Free Software
@@ -19,21 +19,21 @@ import jax.numpy as jnp
 
 
 class AttntionActivationType(Enum):
-    '''
+    """
     The options are as follows. Parameters not mentioned are False.
 
     Attributes:
         GATE: use_gate_act=True
         S2_SEP: use_sep_s2_act=True
         S2: else
-    '''
+    """
     GATE = 'gate'
     S2_SEP ='s2_sep'
     S2 ='s2'
 
 
 class FeedForwardType(Enum):
-    '''
+    """
     The options are as follows. Parameters not mentioned are False.
 
     Attributes:
@@ -42,7 +42,7 @@ class FeedForwardType(Enum):
         GRID_SEP: Grid atomwise, use_grid_mlp=True, use_sep_s2_act=True
         S2: S2 activation
         S2_SEP: S2 activation, use_sep_s2_act=True
-    '''
+    """
     GATE = 'gate'
     GRID = 'grid'
     GRID_SEP = 'grid_sep'

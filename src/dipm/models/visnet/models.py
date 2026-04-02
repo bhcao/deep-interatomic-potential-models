@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-# Modifications Copyright 2025 Cao Bohan
+# Modifications Copyright 2025 Zhongguancun Academy
 #
 # DIPM is free software: you can redistribute it and/or modify it under the terms
 # of the GNU Lesser General Public License as published by the Free Software
@@ -124,9 +124,7 @@ class Visnet(ForceModel):
             param_dtype=self.param_dtype,
             rngs=rngs,
         )
-        self.atomic_energies = nnx.Cache(get_atomic_energies(
-            self.dataset_info, self.config.atomic_energies, num_species, dtype=self.dtype
-        ))
+        self.num_species = num_species
 
     def __call__(
         self,
@@ -147,7 +145,10 @@ class Visnet(ForceModel):
         node_feats = self.output_model.post_reduce(node_feats)
 
         node_feats += self.dataset_info.scaling_mean
-        node_feats += self.atomic_energies.value[node_species]  # [n_nodes, ]
+        atomic_energies = get_atomic_energies(
+            self.dataset_info, self.config.atomic_energies, self.num_species, self.dtype
+        )
+        node_feats += atomic_energies[node_species]  # [n_nodes, ]
 
         return node_feats
 

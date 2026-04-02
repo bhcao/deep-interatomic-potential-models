@@ -3,7 +3,7 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 #
-# Copyright 2025 Cao Bohan
+# Copyright 2025 Zhongguancun Academy
 #
 # DIPM is free software: you can redistribute it and/or modify it under the terms
 # of the GNU Lesser General Public License as published by the Free Software
@@ -30,17 +30,14 @@ from dipm.data.dataset_info import DatasetInfo
 from dipm.layers.radial_basis import GaussianBasis
 from dipm.layers.cutoff import PolynomialCutoff
 from dipm.layers.escn import (
-    MappingCoefficients,
-    SO3Rotation,
-    SO3Grid,
+    get_wigner_mats,
     SO3LinearV2,
-    WignerMatrices,
+    WignerMats,
     LayerNormType,
     EdgeDegreeEmbedding,
     get_layernorm_layer,
-    mapping_coefficients,
 )
-from dipm.models.force_model import ForceModel, PrecallInterface
+from dipm.models.force_model import ForceModel
 from dipm.models.atomic_energies import get_atomic_energies
 from dipm.models.uma.blocks import (
     ChargeSpinTaskEmbed,
@@ -54,7 +51,7 @@ from dipm.models.uma.config import UMAConfig
 from dipm.utils.safe_norm import safe_norm
 
 
-class UMA(ForceModel, PrecallInterface):
+class UMA(ForceModel):
     """The UMA model flax module. It is derived from the
     :class:`~dipm.models.force_model.ForceModel` class.
 
@@ -144,6 +141,9 @@ class UMA(ForceModel, PrecallInterface):
 
             self.mole_dropout = nnx.Dropout(self.config.mole_dropout)
 
+            self.decode = False
+            self.cached_csd_mixed_emb = nnx.data(None)
+
         self.backbone = UMABlock(
             **uma_kargs,
             dtype=self.dtype,
@@ -174,11 +174,8 @@ class UMA(ForceModel, PrecallInterface):
                 dtype=self.dtype, param_dtype=self.param_dtype, rngs=rngs
             )
 
-        self.atomic_energies = nnx.Cache(get_atomic_energies(
-            self.dataset_info, self.config.atomic_energies, num_species, dtype=self.dtype
-        ))
+        self.num_species = num_species
 
-    # pylint: disable=arguments-differ
     def precall(
         self,
         node_species: jax.Array, # [num_nodes,]
@@ -189,6 +186,32 @@ class UMA(ForceModel, PrecallInterface):
         rngs: nnx.Rngs | None = None,
         **_kwargs,
     ) -> dict:
+        """Precall function that returns a dictionary of values which will be used as
+        the kwargs of ``nnx.view`` to initialize the cache."""
+
+        csd_mixed_emb, expert_coeffs = self._router_forward(
+            node_species, charge, spin, n_node, task, rngs
+        )
+
+        if self.config.num_experts == 0:
+            return {"csd_mixed_emb": csd_mixed_emb}
+
+        return {
+            "csd_mixed_emb": csd_mixed_emb,
+            "expert_coeffs": expert_coeffs,
+            "n_node": n_node,
+        }
+
+    def _router_forward(
+        self,
+        node_species: jax.Array, # [num_nodes,]
+        charge: jax.Array, # [num_batch,]
+        spin: jax.Array, # [num_batch,]
+        n_node: jax.Array, # [num_batch,]
+        task: jax.Array | None = None,
+        rngs: nnx.Rngs | None = None,
+        **_kwargs,
+    ) -> tuple[jax.Array, jax.Array | None]:
         if task is None and self.dataset_info.task_list is not None:
             raise ValueError("Must provide `task` for `precall`.")
         if self.dataset_info.task_list is None:
@@ -196,30 +219,23 @@ class UMA(ForceModel, PrecallInterface):
         else:
             csd_mixed_emb = self.charge_spin_task_embed(charge, spin, task)
 
-        # Just cache the csd_mixed_emb, no further precall.
         if self.config.num_experts == 0:
-            return {".": {"csd_mixed_emb": csd_mixed_emb}}
+            return csd_mixed_emb, None
 
         embeddings = csd_mixed_emb
         if self.config.use_composition_embedding:
-            composition = scatter_mean(self.composition_embedding(node_species), nel=n_node)
+            composition = scatter_mean(
+                self.composition_embedding(node_species), nel=n_node
+            )
             embeddings = jnp.concat([composition, csd_mixed_emb], axis=-1)
 
-        expert_mixing_coeffs = self.mole_router(embeddings)
-        expert_mixing_coeffs = nnx.softmax(
-            self.mole_dropout(expert_mixing_coeffs, rngs=rngs), axis=1
+        expert_coeffs = self.mole_router(embeddings)
+        expert_coeffs = nnx.softmax(
+            self.mole_dropout(expert_coeffs, rngs=rngs), axis=1
         ) + 0.005 # [batch, num_experts]
 
-        return super().precall(
-            csd_mixed_emb=csd_mixed_emb,
-            expert_mixing_coeffs=expert_mixing_coeffs,
-            n_node=n_node,
-        )
+        return csd_mixed_emb, expert_coeffs
 
-    def cache(self, csd_mixed_emb: jax.Array,  **_kwargs):
-        return {"csd_mixed_emb": csd_mixed_emb}
-
-    @PrecallInterface.context_handler
     def __call__(
         self,
         edge_vectors: jax.Array,
@@ -227,15 +243,27 @@ class UMA(ForceModel, PrecallInterface):
         senders: jax.Array,
         receivers: jax.Array,
         *,
+        charge: jax.Array,
+        spin: jax.Array,
         n_node: jax.Array, # Nel version of pyg.Data.batch
         task: jax.Array | None,
         rngs: nnx.Rngs | None = None, # Rngs for dropout, None for eval
-        csd_mixed_emb: jax.Array,
-        ctx: dict,
         **_kwargs,
     ) -> jax.Array:
+        if self.decode:
+            assert self.cached_csd_mixed_emb is not None, (
+                "nnx.view must be called before performing inference"
+            )
+            csd_mixed_emb = self.cached_csd_mixed_emb.value
+            expert_coeffs = None
+        else:
+            csd_mixed_emb, expert_coeffs = self._router_forward(
+                node_species, charge, spin, n_node, task, rngs
+            )
+
         node_feats = self.backbone(
-            edge_vectors, node_species, csd_mixed_emb, senders, receivers, n_node, rngs, ctx=ctx
+            edge_vectors, node_species, csd_mixed_emb, senders, receivers, n_node,
+            rngs=rngs, expert_coeffs=expert_coeffs,
         )
 
         node_energies = self.energy_head(node_feats[:, 0])[:, 0]
@@ -244,11 +272,14 @@ class UMA(ForceModel, PrecallInterface):
         std = self.dataset_info.scaling_stdev
         node_energies = mean + std * node_energies
 
+        atomic_energies = get_atomic_energies(
+            self.dataset_info, self.config.atomic_energies, self.num_species, self.dtype
+        )
         if self.dataset_info.task_list is not None:
             task = jnp.repeat(task, n_node, total_repeat_length=len(node_species))
-            node_energies += self.atomic_energies.value[node_species, task]  # [n_nodes, ]
+            node_energies += atomic_energies[node_species, task]  # [n_nodes, ]
         else:
-            node_energies += self.atomic_energies.value[node_species]  # [n_nodes, ]
+            node_energies += atomic_energies[node_species]  # [n_nodes, ]
 
         if self.config.force_head:
             forces = self.force_head(node_feats[:, :4])[:, 1:4, 0]
@@ -256,8 +287,32 @@ class UMA(ForceModel, PrecallInterface):
 
         return node_energies
 
+    def set_view(
+        self,
+        decode: bool | None = None,
+        csd_mixed_emb: jax.Array | None = None,
+        **kwargs
+    ):
+        """Class method used by ``nnx.view``.
+        
+        Args:
+            decode: If True, the module is set to decode mode.
+            csd_mixed_emb: The charge-spin-dataset mixed embedding.
+        """
 
-class UMABlock(nnx.Module, PrecallInterface):
+        if decode is not None:
+            self.decode = decode
+
+            if decode:
+                assert csd_mixed_emb is not None, (
+                    "csd_mixed_emb must be provided in decode mode"
+                )
+                self.cached_csd_mixed_emb = nnx.Cache(csd_mixed_emb)
+
+        return kwargs
+
+
+class UMABlock(nnx.Module):
     def __init__(
         self,
         num_species: int = 100,
@@ -282,13 +337,8 @@ class UMABlock(nnx.Module, PrecallInterface):
         self.sphere_channels = sphere_channels
         self.cutoff = cutoff
         self.lmax = lmax
+        self.mmax = mmax
         self.deterministic = False # Randomness
-
-        mapping_coeffs = mapping_coefficients(lmax, mmax)
-
-        # lmax_lmax for node, lmax_mmax for edge
-        so3_grid = SO3Grid(lmax, mmax, resolution=grid_resolution, dtype=dtype or param_dtype)
-        so3_grid_lmax = SO3Grid(lmax, lmax, resolution=grid_resolution, dtype=dtype or param_dtype)
 
         # atom embedding
         self.sphere_embedding = nnx.Embed(
@@ -322,8 +372,9 @@ class UMABlock(nnx.Module, PrecallInterface):
         ]
 
         self.edge_degree_embedding = EdgeDegreeEmbedding(
+            lmax,
+            mmax,
             sphere_channels,
-            mapping_coeffs,
             edge_channels_list,
             use_atom_edge_embedding=False,
             rescale_factor=5.0,  # sqrt avg degree
@@ -337,11 +388,11 @@ class UMABlock(nnx.Module, PrecallInterface):
         # Initialize the blocks for each layer
         self.layers = nnx.List([
             UMALayer(
+                lmax,
+                mmax,
                 sphere_channels,
                 hidden_channels,
-                mapping_coeffs,
-                so3_grid,
-                so3_grid_lmax,
+                grid_resolution,
                 edge_channels_list,
                 norm_type,
                 act_type,
@@ -363,11 +414,6 @@ class UMABlock(nnx.Module, PrecallInterface):
             rngs=rngs,
         )
 
-        self.so3_rotation = SO3Rotation(
-            lmax, mmax, mapping_coeffs.perm, scale=False, dtype=dtype or param_dtype
-        )
-
-    @PrecallInterface.context_handler
     def __call__(
         self,
         edge_vectors: jax.Array,  # [n_edges, 3]
@@ -376,9 +422,9 @@ class UMABlock(nnx.Module, PrecallInterface):
         senders: jax.Array,  # [n_edges]
         receivers: jax.Array,  # [n_edges]
         n_node: jax.Array,  # [n_batch]
-        rngs: nnx.Rngs | None = None,  # Rngs for dropout, None for eval
         *,
-        ctx: dict | None = None,
+        rngs: nnx.Rngs | None = None,  # Rngs for dropout, None for eval
+        expert_coeffs: jax.Array | None = None,
     ):
         # Initialize the WignerD matrices and other values for spherical harmonic calculations
         if not self.deterministic:
@@ -390,11 +436,15 @@ class UMABlock(nnx.Module, PrecallInterface):
         else:
             rot_gamma = jnp.zeros(len(edge_vectors), dtype=edge_vectors.dtype)
 
-        wigner_matrices = self.so3_rotation.create_wigner_matrices(edge_vectors, rot_gamma)
+        wigner_matrices = get_wigner_mats(
+            self.lmax, self.mmax, edge_vectors, rot_gamma, scale=False
+        )
 
         # Init per node representations using an atomic number based embedding
         node_feats_scaler = self.sphere_embedding(node_species)
-        csd_mixed_emb = jnp.repeat(csd_mixed_emb, n_node, total_repeat_length=len(node_species), axis=0)
+        csd_mixed_emb = jnp.repeat(
+            csd_mixed_emb, n_node, total_repeat_length=len(node_species), axis=0
+        )
         node_feats_scaler += csd_mixed_emb
 
         node_feats_pad = jnp.zeros(
@@ -430,7 +480,8 @@ class UMABlock(nnx.Module, PrecallInterface):
                 receivers,
                 wigner_matrices,
                 edge_envelope,
-                ctx=ctx,
+                n_node=n_node,
+                expert_coeffs=expert_coeffs,
             )
 
         # Final layer norm
@@ -438,14 +489,14 @@ class UMABlock(nnx.Module, PrecallInterface):
         return node_feats
 
 
-class UMALayer(nnx.Module, PrecallInterface):
+class UMALayer(nnx.Module):
     def __init__(
         self,
+        lmax: int,
+        mmax: int,
         sphere_channels: int,
         hidden_channels: int,
-        mapping_coeffs: MappingCoefficients,
-        so3_grid: SO3Grid,
-        so3_grid_lmax: SO3Grid,
+        grid_resolution: int,
         edge_channels_list: list[int],
         norm_type: LayerNormType,
         act_type: ActivationType,
@@ -457,16 +508,17 @@ class UMALayer(nnx.Module, PrecallInterface):
         rngs: nnx.Rngs,
     ):
         self.norm_1 = get_layernorm_layer(
-            norm_type, mapping_coeffs.lmax, sphere_channels,
+            norm_type, lmax, sphere_channels,
             dtype=dtype, param_dtype=param_dtype, rngs=rngs
         )
 
         self.edge_wise = Edgewise(
+            lmax,
+            mmax,
             sphere_channels,
             hidden_channels,
             edge_channels_list,
-            mapping_coeffs,
-            so3_grid,
+            grid_resolution,
             act_type=act_type,
             num_experts=num_experts,
             dtype=dtype,
@@ -475,7 +527,7 @@ class UMALayer(nnx.Module, PrecallInterface):
         )
 
         self.norm_2 = get_layernorm_layer(
-            norm_type, mapping_coeffs.lmax, sphere_channels,
+            norm_type, lmax, sphere_channels,
             dtype=dtype, param_dtype=param_dtype, rngs=rngs
         )
 
@@ -483,7 +535,7 @@ class UMALayer(nnx.Module, PrecallInterface):
             self.atom_wise = SpectralAtomwise(
                 sphere_channels,
                 hidden_channels,
-                mapping_coeffs.lmax,
+                lmax,
                 dtype=dtype,
                 param_dtype=param_dtype,
                 rngs=rngs,
@@ -492,23 +544,24 @@ class UMALayer(nnx.Module, PrecallInterface):
             self.atom_wise = GridAtomwise(
                 sphere_channels,
                 hidden_channels,
-                so3_grid_lmax=so3_grid_lmax,
+                lmax,
+                grid_resolution,
                 dtype=dtype,
                 param_dtype=param_dtype,
                 rngs=rngs,
             )
 
-    @PrecallInterface.context_handler
     def __call__(
         self,
         node_feats: jax.Array,
         edge_embeds: jax.Array,
         senders: jax.Array,
         receivers: jax.Array,
-        wigner_matrices: WignerMatrices,
+        wigner_matrices: WignerMats,
         edge_envelope: jax.Array,
         *,
-        ctx: dict | None = None,
+        n_node: jax.Array | None = None,
+        expert_coeffs: jax.Array | None = None,
     ):
         # Edge-wise
         node_feats_res = node_feats
@@ -521,7 +574,8 @@ class UMALayer(nnx.Module, PrecallInterface):
             receivers,
             wigner_matrices,
             edge_envelope,
-            ctx=ctx,
+            n_node=n_node,
+            expert_coeffs=expert_coeffs,
         )
         node_feats = node_feats + node_feats_res
 

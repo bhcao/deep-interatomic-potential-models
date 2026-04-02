@@ -227,7 +227,7 @@ class TrainingIOHandler:
         with single_host_jax_and_orbax():
             abstract_state = jax.tree_util.tree_map(
                 ocp.utils.to_shape_dtype_struct,
-                training_state.state_dict(ignore_cache=True),
+                training_state.state_dict(),
             )
             ckpt = self.ckpt_manager.restore(
                 epoch_to_restore,

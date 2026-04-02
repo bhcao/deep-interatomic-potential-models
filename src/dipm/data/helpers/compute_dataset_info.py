@@ -1,4 +1,4 @@
-# Copyright 2025 Cao Bohan
+# Copyright 2025 Zhongguancun Academy
 #
 # DIPM is free software: you can redistribute it and/or modify it under the terms
 # of the GNU Lesser General Public License as published by the Free Software
@@ -19,7 +19,7 @@ from dipm.data.dataset_info import DatasetInfo
 
 
 class MedianHistogram:
-    '''A class to manage and compute the median from a histogram.'''
+    """A class to manage and compute the median from a histogram."""
 
     def __init__(self, init_bins=512):
         self.size = init_bins

@@ -1,4 +1,4 @@
-# Copyright 2025 Cao Bohan
+# Copyright 2025 Zhongguancun Academy
 #
 # DIPM is free software: you can redistribute it and/or modify it under the terms
 # of the GNU Lesser General Public License as published by the Free Software
@@ -13,6 +13,7 @@
 # with this program. If not, see <https://www.gnu.org/licenses/>.
 
 from enum import Enum
+from functools import cache
 
 import jax
 import jax.numpy as jnp
@@ -20,7 +21,22 @@ from flax import nnx
 from flax.nnx.nn import initializers, dtypes
 from flax.typing import Dtype
 
-from dipm.layers.escn.utils import expand_index
+from dipm.layers.escn.utils import get_expand_index
+
+
+@cache
+def _get_balance_degree_weight(lmax: int, dtype: Dtype, skip_l0: bool = False) -> jax.Array:
+    start = 1 if skip_l0 else 0
+
+    balance_degree_weight = jnp.zeros(((lmax + 1) ** 2 - start, 1), dtype=dtype)
+    for lval in range(start, lmax + 1):
+        start_idx = lval**2 - start
+        length = 2 * lval + 1
+        balance_degree_weight = balance_degree_weight.at[
+            start_idx : (start_idx + length), :
+        ].set(1.0 / length)
+
+    return balance_degree_weight / (lmax + 1 - start)
 
 
 class EquivariantLayerNormArray(nnx.Module):
@@ -146,18 +162,6 @@ class EquivariantLayerNormArraySphericalHarmonics(nnx.Module):
 
         self.normalization = normalization
 
-        if std_balance_degrees:
-            balance_degree_weight = jnp.zeros(((lmax + 1) ** 2 - 1, 1), dtype=dtype)
-            for lval in range(1, lmax + 1):
-                start_idx = lval**2 - 1
-                length = 2 * lval + 1
-                balance_degree_weight = balance_degree_weight.at[
-                    start_idx : (start_idx + length), :
-                ].set(1.0 / length)
-            self.balance_degree_weight = nnx.Cache(balance_degree_weight / lmax)
-        else:
-            self.balance_degree_weight = None
-
         self.lmax = lmax
         self.eps = eps
         self.affine = affine
@@ -195,12 +199,15 @@ class EquivariantLayerNormArraySphericalHarmonics(nnx.Module):
                 )  # [N, 1, C]
             elif self.normalization == "component":
                 if self.std_balance_degrees:
+                    balance_degree_weight = _get_balance_degree_weight(
+                        self.lmax, node_input.dtype, skip_l0=True
+                    )
                     # [N, (L_max + 1)**2 - 1, C], without L = 0
                     feature_norm = jnp.pow(feature, 2)
                     feature_norm = jnp.einsum(
                         "nic, ia -> nac",
                         feature_norm,
-                        self.balance_degree_weight.value,
+                        balance_degree_weight,
                     )  # [N, 1, C]
                 else:
                     feature_norm = jnp.mean(
@@ -268,20 +275,7 @@ class EquivariantRMSNormArraySphericalHarmonicsV2(nnx.Module):
         if normalization == "norm":
             assert not std_balance_degrees
 
-        self.expand_index = nnx.Cache(expand_index(lmax))
-
-        if std_balance_degrees:
-            balance_degree_weight = jnp.zeros(((lmax + 1) ** 2, 1), dtype=dtype)
-            for lval in range(lmax + 1):
-                start_idx = lval**2
-                length = 2 * lval + 1
-                balance_degree_weight = balance_degree_weight.at[
-                    start_idx : (start_idx + length), :
-                ].set(1.0 / length)
-            self.balance_degree_weight = nnx.Cache(balance_degree_weight / (lmax + 1))
-        else:
-            self.balance_degree_weight = None
-
+        self.lmax = lmax
         self.eps = eps
         self.affine = affine
         self.centering = centering
@@ -318,9 +312,12 @@ class EquivariantRMSNormArraySphericalHarmonicsV2(nnx.Module):
             )  # [N, 1, C]
         elif self.normalization == "component":
             if self.std_balance_degrees:
+                balance_degree_weight = _get_balance_degree_weight(
+                    self.lmax, node_input.dtype, skip_l0=False
+                )
                 feature_norm = jnp.pow(feature, 2)  # [N, (L_max + 1)**2, C]
                 feature_norm = jnp.einsum(
-                    "nic, ia -> nac", feature_norm, self.balance_degree_weight.value
+                    "nic, ia -> nac", feature_norm, balance_degree_weight
                 )  # [N, 1, C]
             else:
                 feature_norm = jnp.mean(
@@ -333,8 +330,9 @@ class EquivariantRMSNormArraySphericalHarmonicsV2(nnx.Module):
         feature_norm = jnp.pow(feature_norm + self.eps, -0.5)
 
         if self.affine:
+            expand_index = get_expand_index(self.lmax)
             # [1, (L_max + 1)**2, C]
-            weight = affine_weight[None, self.expand_index.value]
+            weight = affine_weight[None, expand_index]
             feature_norm = feature_norm * weight  # [N, (L_max + 1)**2, C]
 
         out = feature * feature_norm

@@ -1,4 +1,4 @@
-# Copyright 2025 Cao Bohan
+# Copyright 2025 Zhongguancun Academy
 #
 # DIPM is free software: you can redistribute it and/or modify it under the terms
 # of the GNU Lesser General Public License as published by the Free Software
@@ -31,7 +31,7 @@ _T_co = TypeVar("_T_co", covariant=True)
 
 # Fuck MACE! Why not represent None by not providing a key?
 def _unpack_value(value):
-    '''In MACE h5 dataset, None is transformed to str.'''
+    """In MACE h5 dataset, None is transformed to str."""
     value = value.decode("utf-8") if isinstance(value, bytes) else value
     return None if str(value) == "None" else value
 
@@ -148,7 +148,7 @@ class Hdf5Dataset(Dataset[_T_co]):
         return self.length
 
     def release(self):
-        '''Release dataset file handles.'''
+        """Release dataset file handles."""
         if self._file is not None:
             self._file.close()
             self._file = None

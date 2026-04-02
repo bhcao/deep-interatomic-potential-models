@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-# Modifications Copyright 2025 Cao Bohan
+# Modifications Copyright 2025 Zhongguancun Academy
 #
 # DIPM is free software: you can redistribute it and/or modify it under the terms
 # of the GNU Lesser General Public License as published by the Free Software
@@ -26,9 +26,9 @@
 # You should have received a copy of the GNU Lesser General Public License along
 # with this program. If not, see <https://www.gnu.org/licenses/>.
 
-'''
+"""
 Modified from e3nn_jax._src.linear_flax to support nnx
-'''
+"""
 
 from collections.abc import Callable
 

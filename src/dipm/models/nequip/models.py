@@ -114,9 +114,7 @@ class Nequip(ForceModel):
             param_dtype=self.param_dtype,
             rngs=rngs
         )
-        self.atomic_energies = nnx.Cache(get_atomic_energies(
-            self.dataset_info, self.config.atomic_energies, num_species, dtype=self.dtype
-        ))
+        self.num_species = num_species
 
     def __call__(
         self,
@@ -132,7 +130,11 @@ class Nequip(ForceModel):
         mean = self.dataset_info.scaling_mean
         std = self.dataset_info.scaling_stdev
         node_energies = mean + std * node_energies
-        node_energies += self.atomic_energies.value[node_species]  # [n_nodes, ]
+
+        atomic_energies = get_atomic_energies(
+            self.dataset_info, self.config.atomic_energies, self.num_species, self.dtype
+        )
+        node_energies += atomic_energies[node_species]  # [n_nodes, ]
 
         return node_energies
 

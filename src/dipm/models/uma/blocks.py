@@ -3,7 +3,7 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 #
-# Copyright 2025 Cao Bohan
+# Copyright 2025 Zhongguancun Academy
 #
 # DIPM is free software: you can redistribute it and/or modify it under the terms
 # of the GNU Lesser General Public License as published by the Free Software
@@ -26,37 +26,36 @@ import jax
 import jax.numpy as jnp
 
 from dipm.layers.escn import (
+    get_s2grid_mats,
     GateActivation,
     SeparableS2Activation,
-    MappingCoefficients,
-    SO3Grid,
-    WignerMatrices,
+    WignerMats,
     SO3LinearV2,
     SO2Convolution,
 )
-from dipm.models.force_model import PrecallInterface
 
 
 class ActivationType(Enum):
-    '''Type of attention activation.'''
+    """Type of attention activation."""
     GATE = "gate"
     S2_SEP = "s2_sep"
 
 
 class FeedForwardType(Enum):
-    '''Type of feed-forward layer.'''
+    """Type of feed-forward layer."""
     SPECTRAL = "spectral"
     GRID = "grid"
 
 
-class Edgewise(nnx.Module, PrecallInterface):
+class Edgewise(nnx.Module):
     def __init__(
         self,
+        lmax: int,
+        mmax: int,
         sphere_channels: int,
         hidden_channels: int,
         edge_channels_list: list[int],
-        mapping_coeffs: MappingCoefficients,
-        so3_grid: SO3Grid,
+        grid_resolution: int,
         act_type: ActivationType = ActivationType.GATE,
         num_experts: int = 0,
         *,
@@ -66,18 +65,19 @@ class Edgewise(nnx.Module, PrecallInterface):
     ):
         if act_type == ActivationType.GATE:
             self.act = GateActivation(
-                mapping_coeffs.lmax, mapping_coeffs.mmax, hidden_channels, m_prime=True
+                lmax, mmax, hidden_channels, m_prime=True
             )
-            extra_m0_output_channels = mapping_coeffs.lmax * hidden_channels
+            extra_m0_output_channels = lmax * hidden_channels
         else:
             # This is the only place where the SO3 grid of the edges (lmax/mmax) is used
-            self.act = SeparableS2Activation(so3_grid, mapping_coeffs.perm)
+            self.act = SeparableS2Activation(lmax, mmax, grid_resolution, m_prime=True)
             extra_m0_output_channels = hidden_channels
 
         self.so2_conv_1 = SO2Convolution(
+            lmax,
+            mmax,
             2 * sphere_channels,
             hidden_channels,
-            mapping_coeffs,
             internal_weights=False,
             edge_channels_list=edge_channels_list,
             extra_m0_output_channels=extra_m0_output_channels,
@@ -88,26 +88,27 @@ class Edgewise(nnx.Module, PrecallInterface):
         )
 
         self.so2_conv_2 = SO2Convolution(
+            lmax,
+            mmax,
             hidden_channels,
             sphere_channels,
-            mapping_coeffs,
             num_experts=num_experts,
             dtype=dtype,
             param_dtype=param_dtype,
             rngs=rngs,
         )
 
-    @PrecallInterface.context_handler
     def __call__(
         self,
         node_feats: jax.Array, # In m primary mode
         edge_embeds: jax.Array,
         senders: jax.Array,
         receivers: jax.Array,
-        wigner_matrices: WignerMatrices,
+        wigner_matrices: WignerMats,
         edge_envelope: jax.Array,
         *,
-        ctx: dict | None = None,
+        n_node: jax.Array | None = None,
+        expert_coeffs: jax.Array | None = None,
     ):
         num_nodes = len(node_feats)
 
@@ -117,9 +118,13 @@ class Edgewise(nnx.Module, PrecallInterface):
         messages = wigner_matrices.rotate(messages)
 
         # SO2 convolution
-        messages, x_0_gating = self.so2_conv_1(messages, edge_embeds, ctx=ctx)
+        messages, x_0_gating = self.so2_conv_1(
+            messages, edge_embeds, n_node=n_node, expert_coeffs=expert_coeffs,
+        )
         messages = self.act(x_0_gating, messages)
-        messages = self.so2_conv_2(messages, edge_embeds, ctx=ctx)
+        messages = self.so2_conv_2(
+            messages, edge_embeds, n_node=n_node, expert_coeffs=expert_coeffs,
+        )
         messages = messages * edge_envelope
 
         # Rotate back the irreps
@@ -175,13 +180,15 @@ class GridAtomwise(nnx.Module):
         self,
         sphere_channels: int,
         hidden_channels: int,
-        so3_grid_lmax: SO3Grid,
+        lmax: int,
+        grid_resolution: int,
         *,
         dtype: Dtype | None = None,
         param_dtype: Dtype = jnp.float32,
         rngs: nnx.Rngs,
     ):
-        self.so3_grid_lmax = so3_grid_lmax
+        self.lmax = lmax
+        self.grid_resolution = grid_resolution
 
         self.grid_mlp = nnx.Sequential(
             nnx.Linear(sphere_channels, hidden_channels, use_bias=False,
@@ -195,14 +202,16 @@ class GridAtomwise(nnx.Module):
         )
 
     def __call__(self, node_feats):
-        node_feats_grid = self.so3_grid_lmax.to_grid(node_feats)
+        so3_grid = get_s2grid_mats(self.lmax, self.lmax, self.grid_resolution)
+
+        node_feats_grid = so3_grid.to_grid(node_feats)
         node_feats_grid = self.grid_mlp(node_feats_grid)
-        node_feats = self.so3_grid_lmax.from_grid(node_feats_grid)
+        node_feats = so3_grid.from_grid(node_feats_grid)
         return node_feats
 
 
 class ChargeSpinTaskEmbed(nnx.Module):
-    '''Embeds the charge, spin and task / dataset information.'''
+    """Embeds the charge, spin and task / dataset information."""
     def __init__(
         self,
         num_channels: int,

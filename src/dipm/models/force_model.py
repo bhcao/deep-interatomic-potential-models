@@ -12,8 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from collections.abc import Sequence, Callable
-from functools import wraps
 import re
 from typing import Any
 
@@ -24,66 +22,6 @@ import pydantic
 
 from dipm.data.dataset_info import DatasetInfo
 from dipm.typing import get_dtype, DtypeEnum
-
-
-class PrecallInterface:
-    """Interface for pre-call functions."""
-    precall_key: str # ctx key in precall context
-
-    def init_precall_key(self):
-        """Create precall keys for each submodule. Will be called by `ForceFieldPredictor`."""
-        for key, value in self.__dict__.items():
-            if isinstance(value, PrecallInterface):
-                value.precall_key = key
-                value.init_precall_key()
-            elif isinstance(value, Sequence):
-                for idx, subvalue in enumerate(value):
-                    if isinstance(subvalue, PrecallInterface):
-                        subvalue.precall_key = f"{key}.{idx}"
-                        subvalue.init_precall_key()
-
-    def precall(self, **kwargs) -> dict[str, Any]:
-        """Pre-call function to be called before the forward pass. To reduce possible errors,
-        please always use keyword arguments and use a `kwargs` to catch extra arguments.
-        """
-        ctx = {}
-        cache_val = self.cache(**kwargs) # pylint: disable=assignment-from-none
-        if cache_val is not None:
-            ctx['.'] = cache_val
-        for key, value in self.__dict__.items():
-            if isinstance(value, PrecallInterface):
-                ctx[key] = value.precall(**kwargs)
-            elif isinstance(value, Sequence):
-                ctx.update({
-                    f'{key}.{idx}': subvalue.precall(**kwargs)
-                    for idx, subvalue in enumerate(value) if isinstance(subvalue, PrecallInterface)
-                })
-        return ctx
-
-    def cache(self, **_kwargs) -> dict[str, Any] | None:
-        """Return a dict of values to be cached for the forward pass."""
-        return None
-
-    @staticmethod
-    def context_handler(forward_fn: Callable) -> Callable:
-        """Wraps __call__() to handle precall context."""
-
-        @wraps(forward_fn)
-        def wrapped(self, *args, ctx: dict[str, Any] | None = None, **kwargs):
-            if ctx is None:
-                return forward_fn(self, *args, **kwargs)
-
-            if getattr(self, "precall_key", None) is not None:
-                ctx = ctx[self.precall_key]
-
-            cur_ctx = ctx.pop('.', None)
-            if cur_ctx is not None:
-                kwargs.update(cur_ctx)
-
-            if len(ctx) > 0:
-                return forward_fn(self, *args, ctx=ctx, **kwargs)
-            return forward_fn(self, *args, **kwargs)
-        return wrapped
 
 
 class ForceModelConfig(pydantic.BaseModel):
@@ -115,9 +53,10 @@ class ForceModel(nnx.Module):
     All subclasses of ForceModel must call super.__init__() and pass in
     an additional nnx.Rngs parameter during initialization
 
-    NOTE: Don't keep any jax.Array that need to be used in the forward pass
-    directly in the class attributes, as they won't be replicated when
-    parallelized. Instead, use the nnx.Cache to wrap them.
+    The ``jax.Array`` constant should be defined in ``__call__`` instead of in
+    ``__init__``, or ``jax.jit`` will treat it as a runtime buffer rather than a
+    compile time literal. In case of duplicate creation when JIT is disabled, you
+    can use ``functools.cache`` to cache it.
 
     To support direct forces prediction, you should specify ``force_head_prefix``
     (str) in the class's constants. The prefix should be the state dict key

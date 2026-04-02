@@ -19,6 +19,7 @@ from dipm.data.dataset_info import DatasetInfo
 from dipm.data.helpers.atomic_number_table import AtomicNumberTable
 
 
+# TODO: functools.cache cannot be used here as `dataset_info` is not hashable
 def get_atomic_energies(
     dataset_info: DatasetInfo,
     atomic_energies_input: str | dict[int, float] | None = None,

@@ -69,7 +69,7 @@ class _LmdbPyGUnpickler(pickle.Unpickler):
 
     def __init__(self, file):
         super().__init__(file)
-        self.allowed_packages = set(['collections.', 'torch.', 'torch_geometric.'])
+        self.allowed_packages = set(['collections.', 'torch.', 'torch_geometric.', 'numpy.'])
 
     def find_class(self, module, name):
         module_with_dot = module + '.' # in case some malicious package has a same prefix
@@ -90,6 +90,8 @@ def _load_pyg_data(data_bytes, ref_energies=None):
     }
     if hasattr(data, "force"):
         data_dict["forces"] = data.force.numpy()
+    elif hasattr(data, "forces"):
+        data_dict["forces"] = data.forces.numpy()
     if hasattr(data, "energy") or data.y is not None:
         data_dict["energy"] = float(data.energy if hasattr(data, "energy") else data.y)
     if hasattr(data, "stress"):

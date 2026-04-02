@@ -1,4 +1,4 @@
-# Copyright 2025 Cao Bohan
+# Copyright 2025 Zhongguancun Academy
 #
 # DIPM is free software: you can redistribute it and/or modify it under the terms
 # of the GNU Lesser General Public License as published by the Free Software
@@ -12,18 +12,17 @@
 # You should have received a copy of the GNU Lesser General Public License along
 # with this program. If not, see <https://www.gnu.org/licenses/>.
 
-from functools import lru_cache
+from functools import cache
 
 import jax
 import jax.numpy as jnp
-from flax.typing import Dtype
 from flax.struct import dataclass
 
 
-@lru_cache(maxsize=None)
-def expand_index(lmax: int, mmax: int = None, vector_only: bool = False,
-                 m_prime: bool = False) -> jax.Array:
-    '''Expand coefficients from l or l-1 values on different irreps to (l+1)**2 or (1+1)**2-1
+@cache
+def get_expand_index(lmax: int, mmax: int = None, vector_only: bool = False,
+                     m_prime: bool = False) -> jax.Array:
+    """Expand coefficients from l or l-1 values on different irreps to (l+1)**2 or (1+1)**2-1
     values on all elements.
     
     Args:
@@ -34,7 +33,7 @@ def expand_index(lmax: int, mmax: int = None, vector_only: bool = False,
         m_prime (optional): If True, indices are in order (l0m0, l1m0, l2m0, l1m1, l2m1, l2m2,
             l1m-1, l2m-1, l2m-2, ...), otherwise, indices are in order (l0m0, l1m-1, l1m0, l1m1,
             l2m-2, l2m-1, l2m0, l2m1, l2m2, ...).
-    '''
+    """
     if mmax is None:
         mmax = lmax
     lmin = 1 if vector_only else 0
@@ -58,10 +57,10 @@ def expand_index(lmax: int, mmax: int = None, vector_only: bool = False,
     return jnp.concat(expand_index_list)
 
 
-@lru_cache(maxsize=None)
-def order_mask(lmax: int, mmax: int, lmax_emb: int = None) -> jax.Array:
-    '''Compute the mask of orders less than or equal to `mmax` on IrrepsArray of
-    `(1, ..., lmax)`.'''
+@cache
+def get_order_mask(lmax: int, mmax: int, lmax_emb: int = None) -> jax.Array:
+    """Compute the mask of orders less than or equal to `mmax` on IrrepsArray of
+    `(1, ..., lmax)`."""
 
     if lmax_emb is None:
         lmax_emb = lmax
@@ -82,12 +81,12 @@ def order_mask(lmax: int, mmax: int, lmax_emb: int = None) -> jax.Array:
     return jnp.logical_and(l_harmonic <= lmax, m_harmonic <= mmax)
 
 
-@lru_cache(maxsize=None)
-def rescale_matrix(lmax: int, mmax: int, dim: int = 1, *, dtype: Dtype = jnp.float32) -> jax.Array:
-    '''Rescale matrix for masked entries based on `mmax`.'''
+@cache
+def get_rescale_mat(lmax: int, mmax: int, dim: int = 1) -> jax.Array:
+    """Rescale matrix for masked entries based on `mmax`."""
 
     size = (lmax + 1) ** 2
-    matrix = jnp.ones([size] * dim, dtype=dtype)
+    matrix = jnp.ones([size] * dim)
 
     if lmax != mmax:
         for lval in range(lmax + 1):
@@ -103,8 +102,8 @@ def rescale_matrix(lmax: int, mmax: int, dim: int = 1, *, dtype: Dtype = jnp.flo
 
 
 @dataclass
-class MappingCoefficients:
-    '''Holds the mapping coefficients to reduce parameters.'''
+class MappingCoeffs:
+    """Holds the mapping coefficients to reduce parameters."""
     lmax: int
     mmax: int
     perm: jax.Array
@@ -112,8 +111,9 @@ class MappingCoefficients:
     num_coefficients: int
 
 
-def mapping_coefficients(lmax: int, mmax: int) -> MappingCoefficients:
-    '''Return the mapping matrix from lval <--> m and size of each degree.'''
+@cache
+def get_mapping_coeffs(lmax: int, mmax: int) -> MappingCoeffs:
+    """Return the mapping matrix from lval <--> m and size of each degree."""
 
     # Compute the degree (lval) and order (m) for each entry of the embedding
     m_complex_list = []
@@ -147,4 +147,4 @@ def mapping_coefficients(lmax: int, mmax: int) -> MappingCoefficients:
 
     perm = jnp.concat(perm_list)
 
-    return MappingCoefficients(lmax, mmax, perm, m_size, num_coefficients)
+    return MappingCoeffs(lmax, mmax, perm, m_size, num_coefficients)

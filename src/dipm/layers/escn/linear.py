@@ -1,4 +1,4 @@
-# Copyright 2025 Cao Bohan
+# Copyright 2025 Zhongguancun Academy
 #
 # DIPM is free software: you can redistribute it and/or modify it under the terms
 # of the GNU Lesser General Public License as published by the Free Software
@@ -18,12 +18,11 @@ from flax.nnx.nn import initializers, dtypes
 import jax
 import jax.numpy as jnp
 
-from dipm.layers.escn.utils import expand_index
-from dipm.models.force_model import PrecallInterface
+from dipm.layers.escn.utils import get_expand_index
 
 
 class SO3LinearV2(nnx.Module):
-    '''EquiformerV2 linear layer.'''
+    """EquiformerV2 linear layer."""
     def __init__(
         self,
         in_features: int,
@@ -44,8 +43,6 @@ class SO3LinearV2(nnx.Module):
         key = rngs.params()
         self.bias = nnx.Param(initializers.zeros(key, out_features, param_dtype))
 
-        self.expand_index = nnx.Cache(expand_index(lmax))
-
         self.in_features = in_features
         self.out_features = out_features
         self.lmax = lmax
@@ -56,7 +53,9 @@ class SO3LinearV2(nnx.Module):
             (self.kernel.value, self.bias.value, embedding), dtype=self.dtype
         )
 
-        weight_expanded = kernel[self.expand_index.value] # [(L_max + 1) ** 2, C_in, C_out]
+        expand_index = get_expand_index(self.lmax)
+
+        weight_expanded = kernel[expand_index] # [(L_max + 1) ** 2, C_in, C_out]
         out = jnp.einsum(
             "bmi, mio -> bmo", embedding, weight_expanded
         )  # [N, (L_max + 1) ** 2, C_out]
@@ -67,7 +66,8 @@ class SO3LinearV2(nnx.Module):
         return out
 
 
-class MoLE(nnx.Module, PrecallInterface):
+class MoLE(nnx.Module):
+    """Mixture-of-Experts linear layer used in UMA."""
     def __init__(
         self,
         num_experts: int,
@@ -87,6 +87,8 @@ class MoLE(nnx.Module, PrecallInterface):
         self.bias = nnx.Param(
             initializers.zeros(rngs.params(), (out_features,), param_dtype)
         ) if use_bias else None
+        self.cached_kernel = nnx.data(None)
+        self.decode = False
 
         self.in_features = in_features
         self.out_features = out_features
@@ -94,26 +96,39 @@ class MoLE(nnx.Module, PrecallInterface):
         self.use_bias = use_bias
         self.dtype = dtype
 
-    # pylint: disable=arguments-differ
-    def cache(self, expert_mixing_coeffs: jax.Array, n_node: jax.Array, **_kwargs):
-        kernel_moe, expert_mixing_coeffs = dtypes.promote_dtype(
-            (self.kernel.value, expert_mixing_coeffs), dtype=self.dtype
+    def _get_kernel(self, expert_coeffs: jax.Array) -> jax.Array:
+        kernel_moe, expert_coeffs = dtypes.promote_dtype(
+            (self.kernel.value, expert_coeffs), dtype=self.dtype
         )
 
         kernel = jnp.einsum(
             "eio,be->bio",
             kernel_moe,
-            expert_mixing_coeffs,
+            expert_coeffs,
         )
+        return kernel
 
-        return {"kernel": kernel, "n_node": n_node}
+    def __call__(
+        self,
+        inputs: jax.Array,
+        n_node: jax.Array,
+        *,
+        expert_coeffs: jax.Array | None = None,
+    ):
+        if self.decode:
+            assert self.cached_kernel is not None, (
+                "nnx.view must be called before performing inference"
+            )
+            kernel = self.cached_kernel.value
+        else:
+            assert expert_coeffs is not None, (
+                "expert_coeffs must be provided in training mode"
+            )
+            kernel = self._get_kernel(expert_coeffs)
 
-    @PrecallInterface.context_handler
-    def __call__(self, inputs: jax.Array, *, kernel: jax.Array, n_node: jax.Array):
-        """Kernel and n_node will be automatically added by context handler from cache."""
         bias = self.bias.value if self.bias is not None else None
-        inputs, kernel, bias = dtypes.promote_dtype(
-            (inputs, kernel, bias), dtype=self.dtype
+        inputs, bias = dtypes.promote_dtype(
+            (inputs, bias), dtype=self.dtype
         )
 
         if len(n_node) == 1:
@@ -127,3 +142,28 @@ class MoLE(nnx.Module, PrecallInterface):
         if bias is not None:
             result += bias
         return result
+
+    def set_view(
+        self,
+        decode: bool | None = None,
+        expert_coeffs: jax.Array | None = None,
+        **kwargs,
+    ) -> dict:
+        """Class method used by ``nnx.view``.
+
+        Args:
+            decode: If True, the module is set to decode mode.
+            expert_coeffs: The expert mixing coefficients to get kernel weights.
+        """
+
+        if decode is not None:
+            self.decode = decode
+
+            if decode:
+                assert expert_coeffs is not None, (
+                    "expert_coeffs must be provided in decode mode"
+                )
+                kernel = self._get_kernel(expert_coeffs)
+                self.cached_kernel = nnx.Cache(kernel)
+
+        return kwargs

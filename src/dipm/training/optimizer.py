@@ -25,7 +25,7 @@ from dipm.training.configs import OptimizerConfig
 
 
 class EMATracker(Pytree):
-    '''EMA tracker combined of nnx.Optimizer and nnx.Module'''
+    """EMA tracker combined of nnx.Optimizer and nnx.Module"""
     def __init__(
         self,
         model: nnx.Module,
@@ -33,14 +33,14 @@ class EMATracker(Pytree):
         debias: bool = True,
         accumulator_dtype: Any | None = None
     ):
-        '''
+        """
         Args:
             model: Original NNX Module.
             decay: Decay rate for the exponential moving average defined by `optax.ema`.
             debias: Whether to debias the transformed gradient. Defined by `optax.ema`.
             accumulator_dtype: Optional `dtype` to used for the accumulator defined by
                                `optax.ema`.
-        '''
+        """
         self.graphdef, state, _ = nnx.split(model, nnx.Param, ...)
         # Debias will be manually applied when getting the final EMA model.
         self.tx = optax.ema(decay, False, accumulator_dtype)
@@ -49,10 +49,10 @@ class EMATracker(Pytree):
         self.debias = debias
 
     def update(self, model: nnx.Module):
-        '''
+        """
         Args:
             model: The updated original model.
-        '''
+        """
         param_arrays = nnx.pure(nnx.state(model, nnx.Param))
         opt_state_arrays = nnx.pure(self.opt_state)
 
@@ -60,14 +60,14 @@ class EMATracker(Pytree):
         nnx.update(self.opt_state, nnx.state(new_opt_state))
 
     def get_model(self, other_state: nnx.State, parallel: bool = False) -> nnx.Module:
-        '''Get the final EMA model. We do not store the other state because nnx.BatchStat
+        """Get the final EMA model. We do not store the other state because nnx.BatchStat
         is not static.
 
         Args:
             other_state: The other state to be merged with the EMA model, e.g., static
                          variables and nnx.BatchStat.
             parallel: True if the model is trained in parallel.
-        '''
+        """
 
         def _get_model(opt_state, decay) -> nnx.State:
             opt_state_arrays = nnx.pure(opt_state)

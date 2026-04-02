@@ -42,6 +42,7 @@
 """Modified version of jraph.utils.dynamically_batch."""
 
 from collections.abc import Callable, Generator, Iterator
+from multiprocessing import shared_memory
 
 import jraph
 import numpy as np
@@ -64,12 +65,15 @@ def _is_over_batch_size(
 
 
 def dynamically_batch(
-    graphs_tuple_iterator: Iterator[jraph.GraphsTuple],
+    graphs_tuple_iterator: Iterator[
+        jraph.GraphsTuple | tuple[jraph.GraphsTuple, shared_memory.SharedMemory]
+    ],
     n_node: int,
     n_edge: int,
     n_graph: int,
     pad_fn: Callable[[jraph.GraphsTuple], jraph.GraphsTuple] = None,
     skip_last_batch: bool = False,
+    use_shared_memory: bool = False,
 ) -> Generator[jraph.GraphsTuple, None, None]:
     """Dynamically batches trees with ``jraph.GraphsTuples`` up to specified sizes.
 
@@ -88,6 +92,10 @@ def dynamically_batch(
       pad_fn: A function for padding. If ``None`` (default),
               then use jraph.pad_with_graphs.
       skip_last_batch: Whether to skip the last batch. The default is false.
+      use_shared_memory: Whether to use shared memory for the batch. If ``True``,
+                         the ``graphs_tuple_iterator`` will generate a additional
+                         ``shared_memory.SharedMemory``, which will be closed after
+                         using.
 
     Yields:
       A ``jraph.GraphsTuple`` batch of graphs.
@@ -111,15 +119,22 @@ def dynamically_batch(
         )
     valid_batch_size = (n_node - 1, n_edge, n_graph - 1)
     accumulated_graphs = []
+    accumulated_shm = []
     num_accumulated_nodes = 0
     num_accumulated_edges = 0
     num_accumulated_graphs = 0
     for element in graphs_tuple_iterator:
+        if use_shared_memory:
+            element, shm = element
         element_nodes, element_edges, element_graphs = _get_graph_size(element)
         if _is_over_batch_size(element, valid_batch_size):
             # First yield the batched graph so far if exists.
             if accumulated_graphs:
                 yield pad_fn(jraph.batch_np(accumulated_graphs))
+                if use_shared_memory:
+                    for shm in accumulated_shm:
+                        shm.unlink()
+                        shm.close()
 
             # Then report the error.
             graph_size = element_nodes, element_edges, element_graphs
@@ -139,6 +154,8 @@ def dynamically_batch(
             num_accumulated_nodes = element_nodes
             num_accumulated_edges = element_edges
             num_accumulated_graphs = element_graphs
+            if use_shared_memory:
+                accumulated_shm = [shm]
             continue
         else:
             if (
@@ -151,12 +168,23 @@ def dynamically_batch(
                 num_accumulated_nodes = element_nodes
                 num_accumulated_edges = element_edges
                 num_accumulated_graphs = element_graphs
+                if use_shared_memory:
+                    for shm in accumulated_shm:
+                        shm.unlink()
+                        shm.close()
+                    accumulated_shm = [shm]
             else:
                 accumulated_graphs.append(element)
                 num_accumulated_nodes += element_nodes
                 num_accumulated_edges += element_edges
                 num_accumulated_graphs += element_graphs
+                if use_shared_memory:
+                    accumulated_shm.append(shm)
 
     # We may still have data in batched graph.
     if accumulated_graphs and not skip_last_batch:
         yield pad_fn(jraph.batch_np(accumulated_graphs))
+        if use_shared_memory:
+            for shm in accumulated_shm:
+                shm.unlink()
+                shm.close()

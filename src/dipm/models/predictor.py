@@ -24,7 +24,7 @@ import numpy as np
 
 from dipm.data import DatasetInfo
 from dipm.data.helpers.edge_vectors import get_edge_relative_vectors
-from dipm.models.force_model import ForceModel, ForceModelConfig, PrecallInterface
+from dipm.models.force_model import ForceModel, ForceModelConfig
 from dipm.typing import Prediction
 
 RelativeEdgeVectors: TypeAlias = np.ndarray
@@ -59,21 +59,17 @@ class ForceFieldPredictor(nnx.Module):
         """
         self.force_model = force_model
         self.predict_stress = predict_stress
-        if isinstance(self.force_model, PrecallInterface):
-            self.force_model.init_precall_key()
 
     def __call__(
         self,
         graph: jraph.GraphsTuple,
         rngs: nnx.Rngs | None = None,
-        ctx: dict | None = None,
     ) -> Prediction:
         """Returns a `Prediction` dataclass of properties based on an input graph.
 
         Args:
             graph: The input graph.
             rngs (optional): The random number generator for dropout. None for eval.
-            ctx (optional): The context dictionary obtained from pre-calling the force model.
 
         Returns:
             The properties as a `Prediction` object including "energy" and "forces".
@@ -103,20 +99,20 @@ class ForceFieldPredictor(nnx.Module):
             if self.predict_stress:
                 pseudo_stress, prediction = nnx.grad(
                     compute_energy_and_forces, argnums=1, has_aux=True
-                )(graph.nodes.positions, strains, graph, rngs, ctx)
+                )(graph.nodes.positions, strains, graph, rngs)
             else:
                 _, prediction = self._compute_energy_and_forces(
-                    graph.nodes.positions, strains, graph, rngs, ctx
+                    graph.nodes.positions, strains, graph, rngs
                 )
         else:
             if self.predict_stress:
                 (minus_forces, pseudo_stress), prediction = nnx.grad(
                     compute_energy_and_forces, argnums=(0, 1), has_aux=True
-                )(graph.nodes.positions, strains, graph, rngs, ctx)
+                )(graph.nodes.positions, strains, graph, rngs)
             else:
                 minus_forces, prediction = nnx.grad(
                     compute_energy_and_forces, argnums=0, has_aux=True
-                )(graph.nodes.positions, strains, graph, rngs, ctx)
+                )(graph.nodes.positions, strains, graph, rngs)
             prediction = prediction.replace(forces=-minus_forces)
 
         if not self.predict_stress:
@@ -130,14 +126,16 @@ class ForceFieldPredictor(nnx.Module):
             pressure=stress_results.pressure,
         )
 
-    def precall(
+    def evaluate(
         self, graph: jraph.GraphsTuple, rngs: nnx.Rngs | None = None
-    ) -> dict:
-        """Pre-call the force model to obtain a context dictionary."""
-        if not isinstance(self.force_model, PrecallInterface):
-            return {}
+    ):
+        """Sets the `Module` to evaluation mode and initializes cache."""
+        self.eval()
 
-        ctx = self.force_model.precall(
+        if not hasattr(self.force_model, 'precall'):
+            return
+
+        mode_dict = self.force_model.precall(
             node_species=graph.nodes.species,
             charge=graph.globals.charge,
             spin=graph.globals.spin,
@@ -145,7 +143,16 @@ class ForceFieldPredictor(nnx.Module):
             task=graph.globals.task,
             rngs=rngs,
         )
-        return ctx
+
+        if mode_dict is None:
+            return
+
+        mode_dict.update({
+            "deterministic": True,
+            "decode": True,
+        })
+        nnx.view(self, **mode_dict, raise_if_not_found=False)
+        return
 
     @staticmethod
     def _compute_stress_results(
@@ -177,7 +184,6 @@ class ForceFieldPredictor(nnx.Module):
         strains: np.ndarray,
         graph: jraph.GraphsTuple,
         rngs: nnx.Rngs | None,
-        ctx: dict | None,
     ) -> tuple[np.ndarray, Prediction]:
         """Return total energy and a `Prediction` object holding graph energies.
 
@@ -185,7 +191,7 @@ class ForceFieldPredictor(nnx.Module):
         differentiation. The `Prediction` object holds graph-wise energies at this
         stage, and may be further populated by downstream methods.
         """
-        node_features = self._compute_node_features(positions, strains, graph, rngs, ctx)
+        node_features = self._compute_node_features(positions, strains, graph, rngs)
         padding_mask = jraph.get_node_padding_mask(graph)
 
         if self.force_model.config.force_head:
@@ -221,7 +227,6 @@ class ForceFieldPredictor(nnx.Module):
         strains: np.ndarray,
         graph: jraph.GraphsTuple,
         rngs: nnx.Rngs | None,
-        ctx: dict | None,
     ) -> np.ndarray:
         """Evaluate node-wise outputs of `.mlip_network` on graph data.
 
@@ -246,16 +251,16 @@ class ForceFieldPredictor(nnx.Module):
                 n_edge=graph.n_edge,
             )
 
-        kwargs = {
-            "n_node": graph.n_node, "rngs": rngs, "task": graph.globals.task,
-            "charge": graph.globals.charge, "spin": graph.globals.spin,
-        }
-        if isinstance(self.force_model, PrecallInterface):
-            if ctx is None:
-                ctx = self.precall(graph, rngs)
-            kwargs["ctx"] = ctx
         node_features = self.force_model(
-            vectors, graph.nodes.species, graph.senders, graph.receivers, **kwargs
+            vectors,
+            graph.nodes.species,
+            graph.senders,
+            graph.receivers,
+            n_node=graph.n_node,
+            rngs=rngs,
+            task=graph.globals.task,
+            charge=graph.globals.charge,
+            spin=graph.globals.spin,
         )  # [n_nodes, ]
         return node_features
 

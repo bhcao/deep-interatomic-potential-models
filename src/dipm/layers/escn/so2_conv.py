@@ -1,4 +1,4 @@
-# Copyright 2025 Cao Bohan
+# Copyright 2025 Zhongguancun Academy
 #
 # DIPM is free software: you can redistribute it and/or modify it under the terms
 # of the GNU Lesser General Public License as published by the Free Software
@@ -20,12 +20,11 @@ import jax
 import jax.numpy as jnp
 
 from dipm.layers import MultiLayerPerceptron
-from dipm.layers.escn.utils import MappingCoefficients
+from dipm.layers.escn.utils import get_mapping_coeffs
 from dipm.layers.escn.linear import MoLE
-from dipm.models.force_model import PrecallInterface
 
 
-class SO2mConvolution(nnx.Module, PrecallInterface):
+class SO2mConvolution(nnx.Module):
     """
     SO(2) Conv: Perform an SO(2) convolution on features corresponding to +- m
 
@@ -64,17 +63,20 @@ class SO2mConvolution(nnx.Module, PrecallInterface):
                 dtype=dtype, param_dtype=param_dtype, rngs=rngs
             )
 
-    @PrecallInterface.context_handler
     def __call__(
         self,
         edge_feats_m: jax.Array,
         *,
-        ctx: dict | None = None,
+        n_node: jax.Array | None = None,
+        expert_coeffs: jax.Array | None = None,
     ):
         num_edges = len(edge_feats_m)
 
         if self.num_experts > 0:
-            edge_feats_m = self.fc(edge_feats_m, ctx=ctx)
+            assert n_node is not None, "n_node must be provided for MoLE"
+            edge_feats_m = self.fc(
+                edge_feats_m, n_node=n_node, expert_coeffs=expert_coeffs
+            )
         else:
             edge_feats_m = self.fc(edge_feats_m)
         edge_feats_r, edge_feats_i = jnp.split(edge_feats_m, 2, axis=2)
@@ -87,14 +89,15 @@ class SO2mConvolution(nnx.Module, PrecallInterface):
         )
 
 
-class SO2Convolution(nnx.Module, PrecallInterface):
+class SO2Convolution(nnx.Module):
     """
     SO(2) Block: Perform SO(2) convolutions for all m (orders)
 
     Args:
+        lmax (int): Degrees (l)
+        mmax (int): Orders (m)
         sphere_channels (int): Number of spherical channels
         m_output_channels (int): Number of output channels used during the SO(2) conv
-        mapping_coeffs (MappingCoefficients): Coefficients to convert l and m indices
         internal_weights (bool): If True, not using radial function to multiply inputs features
         edge_channels_list (list:int): List of sizes of invariant edge embedding. For example,
             [input_channels, hidden_channels, hidden_channels].
@@ -103,9 +106,10 @@ class SO2Convolution(nnx.Module, PrecallInterface):
 
     def __init__(
         self,
+        lmax: int,
+        mmax: int,
         sphere_channels: int,
         m_output_channels: int,
-        mapping_coeffs: MappingCoefficients,
         internal_weights: bool = True,
         edge_channels_list: list[int] | None = None,
         extra_m0_output_channels: int | None = None,
@@ -116,9 +120,9 @@ class SO2Convolution(nnx.Module, PrecallInterface):
         rngs: nnx.Rngs,
     ):
         self.m_output_channels = m_output_channels
-        self.lmax = mapping_coeffs.lmax
-        self.mmax = mapping_coeffs.mmax
-        self.m_size = mapping_coeffs.m_size
+        self.lmax = lmax
+        self.mmax = mmax
+        self.m_size = get_mapping_coeffs(lmax, mmax).m_size
         self.internal_weights = internal_weights
         self.extra_m0_output_channels = extra_m0_output_channels
         self.num_experts = num_experts
@@ -184,13 +188,13 @@ class SO2Convolution(nnx.Module, PrecallInterface):
                 rngs=rngs,
             )
 
-    @PrecallInterface.context_handler
     def __call__(
         self,
         edge_feats: jax.Array, # in m primary order
         edge_embeds: jax.Array,
         *,
-        ctx: dict | None = None,
+        n_node: jax.Array | None = None,
+        expert_coeffs: jax.Array | None = None,
     ) -> jax.Array | tuple[jax.Array, jax.Array]:
         num_edges = len(edge_embeds)
 
@@ -205,8 +209,12 @@ class SO2Convolution(nnx.Module, PrecallInterface):
         if not self.internal_weights:
             edge_embeds_0 = edge_embeds[:, :self.fc_m0.in_features]
             edge_feats_0 = edge_feats_0 * edge_embeds_0
+
         if self.num_experts > 0:
-            edge_feats_0 = self.fc_m0(edge_feats_0, ctx=ctx)
+            assert n_node is not None, "n_node must be provided for MoLE"
+            edge_feats_0 = self.fc_m0(
+                edge_feats_0, n_node=n_node, expert_coeffs=expert_coeffs
+            )
         else:
             edge_feats_0 = self.fc_m0(edge_feats_0)
 
@@ -238,7 +246,9 @@ class SO2Convolution(nnx.Module, PrecallInterface):
                     num_edges, 1, self.so2_m_conv[m - 1].fc.in_features
                 )
                 edge_feats_m = edge_feats_m * edge_embeds_m
-            edge_feats_m = self.so2_m_conv[m - 1](edge_feats_m, ctx=ctx)
+            edge_feats_m = self.so2_m_conv[m - 1](
+                edge_feats_m, n_node=n_node, expert_coeffs=expert_coeffs
+            )
             # x[:, offset : offset + 2 * self.mappingReduced.m_size[m]] = edge_feats_m
             edge_feats_out.extend(edge_feats_m)
             offset = offset + 2 * self.m_size[m]

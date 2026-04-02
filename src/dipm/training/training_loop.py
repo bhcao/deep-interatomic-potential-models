@@ -60,11 +60,11 @@ class _TrainingLog:
         self.epoch_start_time = self.start_time
 
     def append(self, metrics: dict) -> None:
-        '''Appends metrics of a training.'''
+        """Appends metrics of a training."""
         self.metrics.append(metrics)
 
     def get(self, num_steps: int):
-        '''Returns the metrics of the training.'''
+        """Returns the metrics of the training."""
         end_time = time.perf_counter()
         steps = num_steps - self.last_log_step
         time_per_step = (end_time - self.start_time) / steps
@@ -79,7 +79,7 @@ class _TrainingLog:
         return metrics
 
     def get_epoch(self, num_steps: int):
-        '''Returns the time and step used of the current epoch.'''
+        """Returns the time and step used of the current epoch."""
         end_time = time.perf_counter()
         steps = num_steps - self.epoch_last_log_step
         total_time = end_time - self.epoch_start_time
@@ -313,9 +313,9 @@ class TrainingLoop:
 
             self.io_handler.save_checkpoint(
                 (
-                    flax.jax_utils.unreplicate(self.training_state.state_dict(ignore_cache=True))
+                    flax.jax_utils.unreplicate(self.training_state.state_dict())
                     if self.should_parallelize
-                    else self.training_state.state_dict(ignore_cache=True)
+                    else self.training_state.state_dict()
                 ),
                 self.epoch_number,
             )

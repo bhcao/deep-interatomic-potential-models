@@ -1,4 +1,4 @@
-# Copyright 2025 Cao Bohan
+# Copyright 2025 Zhongguancun Academy
 #
 # DIPM is free software: you can redistribute it and/or modify it under the terms
 # of the GNU Lesser General Public License as published by the Free Software
@@ -19,18 +19,17 @@ import jax
 import jax.numpy as jnp
 
 from dipm.layers import MultiLayerPerceptron
-from dipm.layers.escn import (
-    WignerMatrices,
-    MappingCoefficients,
-)
+from dipm.layers.escn.transform import WignerMats
+from dipm.layers.escn.utils import get_mapping_coeffs
 
 
 class EdgeDegreeEmbedding(nnx.Module):
     """
 
     Args:
+        lmax: Maximum degree (l)
+        mmax: Maximum order (m)
         sphere_channels (int): Number of spherical channels
-        mapping_coeffs (MappingCoefficients): Coefficients to convert l and m indices
         edge_channels_list (list:int): List of sizes of invariant edge embedding. For example, 
             [input_channels, hidden_channels, hidden_channels]. The last one will be used as hidden
             size when `use_atom_edge_embedding` is `True`.
@@ -42,8 +41,9 @@ class EdgeDegreeEmbedding(nnx.Module):
 
     def __init__(
         self,
+        lmax: int,
+        mmax: int,
         sphere_channels: int,
-        mapping_coeffs: MappingCoefficients,
         edge_channels_list: list[int],
         use_atom_edge_embedding: bool = False,
         num_species: int | None = None,
@@ -53,9 +53,11 @@ class EdgeDegreeEmbedding(nnx.Module):
         param_dtype: Dtype = jnp.float32,
         rngs: nnx.Rngs,
     ):
-        self.lmax = mapping_coeffs.lmax
-        self.mmax = mapping_coeffs.mmax
+        self.lmax = lmax
+        self.mmax = mmax
         self.sphere_channels = sphere_channels
+
+        mapping_coeffs = get_mapping_coeffs(lmax, mmax)
 
         self.m_0_num_coefficients = mapping_coeffs.m_size[0]
         self.m_all_num_coefficients = mapping_coeffs.num_coefficients
@@ -108,7 +110,7 @@ class EdgeDegreeEmbedding(nnx.Module):
         edge_distances: jax.Array,
         senders: jax.Array,
         receivers: jax.Array,
-        wigner_matrices: WignerMatrices,
+        wigner_matrices: WignerMats,
         edge_envelope: jax.Array | None = None,
     ) -> jax.Array:
         num_nodes = node_species.shape[0]

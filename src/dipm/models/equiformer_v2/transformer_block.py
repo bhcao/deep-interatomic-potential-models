@@ -1,4 +1,4 @@
-# Copyright 2025 Cao Bohan
+# Copyright 2025 Zhongguancun Academy
 #
 # DIPM is free software: you can redistribute it and/or modify it under the terms
 # of the GNU Lesser General Public License as published by the Free Software
@@ -20,11 +20,10 @@ import jax.numpy as jnp
 
 from dipm.layers import MultiLayerPerceptron
 from dipm.layers.escn import (
-    WignerMatrices,
-    SO3Grid,
+    get_s2grid_mats,
+    get_expand_index,
+    WignerMats,
     SO3LinearV2,
-    expand_index,
-    MappingCoefficients,
     GateActivation,
     S2Activation,
     SeparableS2Activation,
@@ -47,13 +46,14 @@ class SO2EquivariantGraphAttention(nnx.Module):
         weights and non-linear messages attention weights * non-linear messages -> Linear
 
     Args:
+        lmax (int): Maximum degree (l)
+        mmax (int): Maximum order (m)
         sphere_channels (int): Number of spherical channels
         hidden_channels (int): Number of hidden channels used during the SO(2) conv
         num_heads (int): Number of attention heads
         attn_alpha_channels (int): Number of channels for alpha vector in each attention head
         attn_value_channels (int): Number of channels for value vector in each attention head
         output_channels (int): Number of output channels
-        mapping_coeffs (MappingCoefficients): Data for converting indices and max degeree/order
         so3_grid (SO3Grid): Class used to convert from grid the spherical harmonic representations
         num_species (int): Maximum number of atomic numbers
         edge_channels_list (list:int): List of sizes of invariant edge embedding. For example, 
@@ -70,14 +70,15 @@ class SO2EquivariantGraphAttention(nnx.Module):
 
     def __init__(
         self,
+        lmax: int,
+        mmax: int,
         sphere_channels: int,
         hidden_channels: int,
         num_heads: int,
         attn_alpha_channels: int,
         attn_value_channels: int,
         output_channels: int,
-        mapping_coeffs: MappingCoefficients,
-        so3_grid: SO3Grid,
+        grid_resolution: int,
         num_species: int,
         edge_channels_list: list[int],
         use_atom_edge_embedding: bool = True,
@@ -94,9 +95,8 @@ class SO2EquivariantGraphAttention(nnx.Module):
         self.num_heads = num_heads
         self.attn_alpha_channels = attn_alpha_channels
         self.attn_value_channels = attn_value_channels
-        self.lmax = mapping_coeffs.lmax
-        self.mmax = mapping_coeffs.mmax
-        self.perm = nnx.Cache(mapping_coeffs.perm)
+        self.lmax = lmax
+        self.mmax = mmax
         self.use_alpha_drop = alpha_drop != 0.0
 
         # Create edge scalar (invariant to rotations) features
@@ -147,12 +147,12 @@ class SO2EquivariantGraphAttention(nnx.Module):
                 param_dtype=param_dtype,
                 rngs=rngs,
             )
-            self.expand_index = nnx.Cache(expand_index(self.lmax))
 
         self.so2_conv_1 = SO2Convolution(
+            lmax,
+            mmax,
             2 * sphere_channels,
             hidden_channels,
-            mapping_coeffs,
             internal_weights=use_m_share_rad,
             edge_channels_list=(
                 edge_channels_list if not use_m_share_rad else None
@@ -193,14 +193,15 @@ class SO2EquivariantGraphAttention(nnx.Module):
                 m_prime=True,
             )
         elif attn_act_type == AttntionActivationType.S2_SEP:
-            self.s2_act = SeparableS2Activation(so3_grid, self.perm.value)
+            self.s2_act = SeparableS2Activation(lmax, mmax, grid_resolution, m_prime=True)
         else:
-            self.s2_act = S2Activation(so3_grid, self.perm.value)
+            self.s2_act = S2Activation(lmax, mmax, grid_resolution, m_prime=True)
 
         self.so2_conv_2 = SO2Convolution(
+            lmax,
+            mmax,
             hidden_channels,
             num_heads * attn_value_channels,
-            mapping_coeffs,
             internal_weights=True,
             edge_channels_list=None,
             extra_m0_output_channels=None,  # for attention weights
@@ -227,7 +228,7 @@ class SO2EquivariantGraphAttention(nnx.Module):
         edge_distances: jax.Array,
         senders: jax.Array,
         receivers: jax.Array,
-        wigner_matrices: WignerMatrices,
+        wigner_matrices: WignerMats,
         rngs: nnx.Rngs | None = None,
     ):
         alpha_dot, = dtypes.promote_dtype((self.alpha_dot.value,), dtype=self.dtype)
@@ -253,12 +254,14 @@ class SO2EquivariantGraphAttention(nnx.Module):
         # radial function (scale all m components within a type-L vector of one channel
         # with the same weight)
         if self.use_m_share_rad:
+            expand_index = get_expand_index(self.lmax)
+
             edge_embeds_weight = self.rad_func(edge_embeds)
             edge_embeds_weight = edge_embeds_weight.reshape(
                 -1, (self.lmax + 1), 2 * self.sphere_channels
             )
             # [E, (L_max + 1) ** 2, C]
-            edge_embeds_weight = edge_embeds_weight[:, self.expand_index.value]
+            edge_embeds_weight = edge_embeds_weight[:, expand_index]
             messages = messages * edge_embeds_weight
 
         # Rotate the irreps to align with the edge, get m primary
@@ -343,7 +346,7 @@ class FeedForwardNetwork(nnx.Module):
         hidden_channels: int,
         output_channels: int,
         lmax: int,
-        so3_grid_lmax: SO3Grid,
+        grid_resolution: int,
         ff_type: FeedForwardType,
         *,
         dtype: Dtype | None = None,
@@ -351,7 +354,8 @@ class FeedForwardNetwork(nnx.Module):
         rngs: nnx.Rngs,
     ):
         self.ff_type = ff_type
-        self.so3_grid_lmax = so3_grid_lmax
+        self.lmax = lmax
+        self.grid_resolution = grid_resolution
 
         self.so3_linear_1 = SO3LinearV2(
             sphere_channels, hidden_channels, lmax=lmax,
@@ -408,9 +412,9 @@ class FeedForwardNetwork(nnx.Module):
             self.gating_linear = nnx.Linear(
                 sphere_channels, hidden_channels, dtype=dtype, param_dtype=param_dtype, rngs=rngs
             )
-            self.s2_act = SeparableS2Activation(so3_grid_lmax)
+            self.s2_act = SeparableS2Activation(lmax, lmax, grid_resolution)
         else:
-            self.s2_act = S2Activation(so3_grid_lmax)
+            self.s2_act = S2Activation(lmax, lmax, grid_resolution)
 
 
     def __call__(self, node_feats: jax.Array):
@@ -418,9 +422,11 @@ class FeedForwardNetwork(nnx.Module):
         node_feats = self.so3_linear_1(node_feats)
 
         if self.ff_type in [FeedForwardType.GRID, FeedForwardType.GRID_SEP]:
-            node_feats_grid = self.so3_grid_lmax.to_grid(node_feats)
+            so3_grid = get_s2grid_mats(self.lmax, self.lmax, self.grid_resolution)
+
+            node_feats_grid = so3_grid.to_grid(node_feats)
             node_feats_grid = self.grid_mlp(node_feats_grid)
-            node_feats = self.so3_grid_lmax.from_grid(node_feats_grid)
+            node_feats = so3_grid.from_grid(node_feats_grid)
 
             if self.ff_type == FeedForwardType.GRID_SEP:
                 gating_scalars = self.scalar_mlp(node_feats_orig[:, 0:1])

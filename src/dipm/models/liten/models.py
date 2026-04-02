@@ -1,4 +1,4 @@
-# Copyright 2025 Cao Bohan
+# Copyright 2025 Zhongguancun Academy
 #
 # DIPM is free software: you can redistribute it and/or modify it under the terms
 # of the GNU Lesser General Public License as published by the Free Software
@@ -96,9 +96,8 @@ class LiTEN(ForceModel):
             param_dtype=self.param_dtype,
             rngs=rngs
         )
-        self.atomic_energies = nnx.Cache(get_atomic_energies(
-            self.dataset_info, self.config.atomic_energies, num_species, dtype=self.dtype
-        ))
+
+        self.num_species = num_species
 
     def __call__(
         self,
@@ -126,11 +125,14 @@ class LiTEN(ForceModel):
         std = self.dataset_info.scaling_stdev
         node_energies = mean + std * node_energies
 
+        atomic_energies = get_atomic_energies(
+            self.dataset_info, self.config.atomic_energies, self.num_species, self.dtype
+        )
         if self.dataset_info.task_list is not None:
             task = jnp.repeat(task, n_node, total_repeat_length=len(node_species))
-            node_energies += self.atomic_energies.value[node_species, task]  # [n_nodes, ]
+            node_energies += atomic_energies[node_species, task]  # [n_nodes, ]
         else:
-            node_energies += self.atomic_energies.value[node_species]  # [n_nodes, ]
+            node_energies += atomic_energies[node_species]  # [n_nodes, ]
 
         return node_energies
 

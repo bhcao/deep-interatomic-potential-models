@@ -52,12 +52,9 @@ class TrainingState:
     num_steps: TrainingStateVar
     acc_steps: TrainingStateVar
 
-    def state_dict(self, ignore_cache: bool = False) -> dict:
-        '''Return dict of nnx.State (filter out RNGs and Static from model)'''
-        if ignore_cache:
-            wrt = [nnx.Param, nnx.BatchStat]
-        else:
-            wrt = [nnx.Param, nnx.BatchStat, nnx.Cache]
+    def state_dict(self) -> dict:
+        """Return dict of nnx.State (filter out RNGs and Static from model)"""
+        wrt = [nnx.Param, nnx.BatchStat]
         state_dict = nnx.state(self)
         state_dict["predictor"] = nnx.state(self.predictor, wrt)
         return state_dict
@@ -73,7 +70,7 @@ def _training_step(
     num_gradient_accumulation_steps: int,
     should_parallelize: bool,
 ) -> dict:
-    '''Training state will be updated rather than create a new state.'''
+    """Training state will be updated rather than create a new state."""
 
     # Fetch params and optimizer state from training state.
     predictor = training_state.predictor

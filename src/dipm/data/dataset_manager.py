@@ -1,4 +1,4 @@
-# Copyright 2025 Cao Bohan
+# Copyright 2025 Zhongguancun Academy
 #
 # DIPM is free software: you can redistribute it and/or modify it under the terms
 # of the GNU Lesser General Public License as published by the Free Software
@@ -32,6 +32,7 @@ from dipm.data.helpers.atomic_number_table import AtomicNumberTable
 from dipm.data.helpers.compute_dataset_info import MedianHistogram, compute_dataset_info_from_stats
 from dipm.data.configs import DatasetManagerConfig
 from dipm.data.helpers.graph_creation import create_graph_from_chemical_system
+from dipm.data.helpers.shared_graph import SharedGraphsTuple
 
 logger = logging.getLogger("dipm")
 
@@ -39,7 +40,7 @@ logger = logging.getLogger("dipm")
 def _process_worker(
     dataset: Dataset, queue: mp.Queue, calc_stats=False, calc_part=False, calc_spices=False
 ):
-    '''Worker function to process a dataset in parallel.'''
+    """Worker function to process a dataset in parallel."""
     data = []
     exclude_ids = []
 
@@ -147,6 +148,7 @@ class _CreateGraphFn:
         use_formation_energies: bool,
         n_node: int,
         n_edge: int,
+        use_shm: bool,
     ):
         self._info = dataset_info
         self.z_table = AtomicNumberTable(sorted(self._info.atomic_energies_map.keys()))
@@ -154,8 +156,9 @@ class _CreateGraphFn:
         self.use_formation_energies = use_formation_energies
         self.n_node = n_node
         self.n_edge = n_edge
+        self.use_shm = use_shm
 
-    def __call__(self, chemical_system: ChemicalSystem) -> jraph.GraphsTuple:
+    def __call__(self, chemical_system: ChemicalSystem) -> SharedGraphsTuple | jraph.GraphsTuple:
         chemical_system.atomic_species = self.to_index_fun(chemical_system.atomic_numbers)
 
         if self.use_formation_energies:
@@ -169,6 +172,8 @@ class _CreateGraphFn:
             chemical_system, self._info.cutoff_distance_angstrom, self._info.max_neighbors_per_atom
         )
         self._check_graph(graph)
+        if self.use_shm:
+            return SharedGraphsTuple.from_graph(graph)
         return graph
 
     def _check_graph(self, graph: jraph.GraphsTuple):
@@ -364,8 +369,19 @@ class DatasetManager:
         # Used for checking the validity of the graph
         n_node = self.config.batch_size * max_n_node + 1
         n_edge = self.config.batch_size * max_n_edge * 2
+
+        use_shm = self.config.use_shared_memory
+        if use_shm is None:
+            use_shm = self.config.num_workers is None or self.config.num_workers > 0
+        if self.config.num_workers is not None and self.config.num_workers == 0:
+            if use_shm:
+                logger.warning(
+                    "Shared memory is enabled but num_workers is set to 0. Disabling shared memory."
+                )
+            use_shm = False
+
         train_dataset, valid_dataset, test_dataset = self.ds_create.create_datasets(
-            _CreateGraphFn(self.dataset_info, self.config.use_formation_energies, n_node, n_edge),
+            _CreateGraphFn(self.dataset_info, self.config.use_formation_energies, n_node, n_edge, use_shm),
         )
 
         create_dataloader_fn = functools.partial(
@@ -377,6 +393,8 @@ class DatasetManager:
             shuffle=self.config.shuffle,
             num_workers=self.config.num_workers,
             prefetch_factor=self.config.num_batch_prefetch,
+            load_into_memory=self.config.load_into_memory,
+            use_shared_memory=use_shm,
         )
 
         train_loader = create_dataloader_fn(train_dataset)

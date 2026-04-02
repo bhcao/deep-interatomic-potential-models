@@ -74,7 +74,6 @@ class ForceFieldASECalculator(Calculator):
         self.allow_nodes_to_change = allow_nodes_to_change
         self.node_capacity_multiplier = node_capacity_multiplier
 
-        force_field.eval()
         self.force_field = force_field
         self.model_eval = None
 
@@ -229,8 +228,8 @@ class ForceFieldASECalculator(Calculator):
         # Run predictions
         if self.model_eval is None:
             # Not jitted as it is only called once
-            ctx = self.force_field.precall(batched_graph)
-            self.model_eval = nnx.jit(partial(self.force_field, ctx=ctx))
+            self.force_field.evaluate(batched_graph)
+            self.model_eval = nnx.jit(self.force_field)
         predictions = self.model_eval(batched_graph)
         if "energy" in properties:
             self.results["energy"] = np.array(predictions.energy[0])

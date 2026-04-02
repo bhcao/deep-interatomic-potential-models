@@ -1,4 +1,4 @@
-# Copyright 2025 Cao Bohan
+# Copyright 2025 Zhongguancun Academy
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,26 +12,25 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-'''
+"""
 In e3nn @ 0.4.0, the Wigner-D matrix is computed using Jd, while in e3nn @ 0.5.0,
 it is computed using generators and matrix_exp causing a significant slowdown.
 However, in e3nn_jax, `_wigner_D_from_angles` uses Jd for l <= 11 and matrix_exp
 for l > 11, so it is well-optimized and there is no need for reimplement.
-'''
+"""
 
-from functools import lru_cache
+from functools import cache
 
 from e3nn_jax._src.J import Jd
 from e3nn_jax._src.s2grid import (
     _spherical_harmonics_s2grid, _normalization, _expand_matrix, _rollout_sh
 )
-from flax import nnx
 from flax.typing import Dtype
 from flax.struct import dataclass
 import jax
 import jax.numpy as jnp
 
-from dipm.layers.escn.utils import order_mask, rescale_matrix
+from dipm.layers.escn.utils import get_order_mask, get_rescale_mat, get_mapping_coeffs
 
 
 def _chebyshev(cos_x: jax.Array, sin_x: jax.Array, lmax: int) -> tuple[jax.Array, jax.Array]:
@@ -165,7 +164,7 @@ def _xyz_to_angles(xyz):
     return (cos_alpha, sin_alpha), (cos_beta, sin_beta)
 
 
-@lru_cache(maxsize=None)
+@cache
 def _get_s2grid_mat(
     lmax: int,
     res_beta: int,
@@ -208,146 +207,120 @@ def _get_s2grid_mat(
 
 
 @dataclass
-class WignerMatrices:
+class WignerMats:
     """Wigner-D matrix"""
 
     wigner: jax.Array
     wigner_inv: jax.Array
 
     def rotate(self, embedding):
-        '''Rotate the embedding, l primary -> m primary.'''
+        """Rotate the embedding, l primary -> m primary."""
         return jnp.matmul(self.wigner, embedding)
 
     def rotate_inv(self, embedding):
-        '''Rotate the embedding by the inverse of rotation matrix, m primary -> to l primary.'''
+        """Rotate the embedding by the inverse of rotation matrix, m primary -> to l primary."""
         return jnp.matmul(self.wigner_inv, embedding)
 
 
-class SO3Rotation(nnx.Module):
+def get_wigner_mats(
+    lmax: int,
+    mmax: int,
+    xyz: jax.Array,
+    gamma: jax.Array,
+    scale: bool = True,
+) -> WignerMats:
     """
-    Helper functions for Wigner-D rotations. Combined with `CoefficientMappingModule` to simplify.
-
-    Args:
-        lmax (int): Maximum degree of the spherical harmonics
+    Init the Wigner-D matrix for given euler angles. For continuity of derivatives, `alpha`
+    and `beta` are implicitly calculated through given `xyz`. Mathematically, it is
+    equivalent to calculate `alpha, beta = xyz_to_angles(xyz)`.
     """
+    mask = get_order_mask(lmax, mmax)
+    # Compute the re-scaling for rotating back to original frame
+    if scale:
+        rotate_inv_rescale = get_rescale_mat(lmax, mmax, dim=2)
+        rotate_inv_rescale = jnp.asarray(rotate_inv_rescale[None, :, mask], dtype=xyz.dtype)
 
-    def __init__(self, lmax: int, mmax: int, perm: jax.Array, scale: bool = True,
-                 *, dtype: Dtype = jnp.float32):
-        self.perm = nnx.Cache(perm)
+    alpha, beta = _xyz_to_angles(xyz)
+    gamma = jnp.cos(gamma), jnp.sin(gamma)
+    blocks = _wigner_d_from_angles(alpha, beta, gamma, lmax)
 
-        mask = order_mask(lmax, mmax)
-        # Compute the re-scaling for rotating back to original frame
-        if scale:
-            rotate_inv_rescale = rescale_matrix(lmax, mmax, dim=2, dtype=dtype)
-            self.rotate_inv_rescale = nnx.Cache(rotate_inv_rescale[None, :, mask])
-        self.mask = nnx.Cache(jnp.argwhere(mask)[:, 0])
+    # Cache the Wigner-D matrices
+    size = (lmax + 1) ** 2
+    wigner_inv = jnp.zeros([len(xyz), size, size], dtype=xyz.dtype)
+    start = 0
+    for i, block in enumerate(blocks):
+        end = start + block.shape[1]
+        wigner_inv = wigner_inv.at[:, start:end, start:end].set((-1) ** i * block)
+        start = end
 
-        self.lmax = lmax
-        self.mmax = mmax
-        self.scale = scale
+    # Mask the output to include only modes with m < mmax
+    wigner_inv = wigner_inv[:, :, mask]
+    wigner = wigner_inv.transpose((0, 2, 1))
 
-    def create_wigner_matrices(
-        self,
-        xyz: jax.Array,
-        gamma: jax.Array,
-    ):
-        '''
-        Init the Wigner-D matrix for given euler angles. For continuity of derivatives, `alpha`
-        and `beta` are implicitly calculated through given `xyz`. Mathematically, it is
-        equivalent to calculate `alpha, beta = xyz_to_angles(xyz)`.
-        '''
-        alpha, beta = _xyz_to_angles(xyz)
-        gamma = jnp.cos(gamma), jnp.sin(gamma)
-        blocks = _wigner_d_from_angles(alpha, beta, gamma, self.lmax)
+    if scale:
+        wigner_inv *= rotate_inv_rescale
 
-        # Cache the Wigner-D matrices
-        size = (self.lmax + 1) ** 2
-        wigner_inv = jnp.zeros([len(xyz), size, size], dtype=xyz.dtype)
-        start = 0
-        for i, block in enumerate(blocks):
-            end = start + block.shape[1]
-            wigner_inv = wigner_inv.at[:, start:end, start:end].set((-1) ** i * block)
-            start = end
+    perm = get_mapping_coeffs(lmax, mmax).perm
+    wigner = wigner[:, perm, :]
+    wigner_inv = wigner_inv[:, :, perm]
 
-        # Mask the output to include only modes with m < mmax
-        wigner_inv = wigner_inv[:, :, self.mask.value]
-        wigner = wigner_inv.transpose((0, 2, 1))
-
-        if self.scale:
-            wigner_inv *= self.rotate_inv_rescale.value
-
-        wigner = wigner[:, self.perm.value, :]
-        wigner_inv = wigner_inv[:, :, self.perm.value]
-
-        return WignerMatrices(wigner, wigner_inv)
+    return WignerMats(wigner, wigner_inv)
 
 
-class SO3Grid(nnx.Module):
-    """
-    Helper functions for grid representation of the irreps
+@dataclass
+class S2GridMats:
+    """Scaled S2 grid matrix"""
 
-    Args:
-        lmax (int):   Maximum degree of the spherical harmonics
-        mmax (int):   Maximum order of the spherical harmonics
-    """
+    to_grid_mat: jax.Array
+    from_grid_mat: jax.Array
 
-    def __init__(
-        self,
-        lmax: int,
-        mmax: int,
-        normalization: str = "component",
-        resolution: int | None = None,
-        *,
-        dtype: Dtype = jnp.float32,
-    ):
-        mask = order_mask(lmax, mmax)
-
-        lat_resolution = 2 * (lmax + 1)
-        long_resolution = 2 * (mmax + 1 if lmax == mmax else mmax) + 1
-        if resolution is not None:
-            lat_resolution = resolution
-            long_resolution = resolution
-
-        # rescale last dimension based on mmax
-        rescale_mat = rescale_matrix(lmax, mmax, dtype=dtype)
-
-        to_grid_mat, from_grid_mat = _get_s2grid_mat(
-            lmax,
-            lat_resolution,
-            long_resolution,
-            normalization=normalization,
-        )
-        self.to_grid_mat = nnx.Cache(
-            jnp.asarray(to_grid_mat * rescale_mat, dtype=dtype)[:, :, mask]
-        )
-        self.from_grid_mat = nnx.Cache(
-            jnp.asarray(from_grid_mat * rescale_mat, dtype=dtype)[:, :, mask]
-        )
-
-        self.lmax = lmax
-        self.mmax = mmax
-        self.normalization = normalization
-        self.resolution = resolution
-        self.dtype = dtype
-
-    def to_grid(self, embedding):
-        '''Compute grid from irreps representation'''
-        grid = jnp.einsum("bai, zic -> zbac", self.to_grid_mat.value, embedding)
+    def to_grid(self, embedding: jax.Array) -> jax.Array:
+        """Compute grid from irreps representation"""
+        to_grid_mat = jnp.asarray(self.to_grid_mat, dtype=embedding.dtype)
+        grid = jnp.einsum("bai, zic -> zbac", to_grid_mat, embedding)
         return grid
 
-    def from_grid(self, grid):
-        '''Compute irreps from grid representation'''
-        embedding = jnp.einsum("bai, zbac -> zic", self.from_grid_mat.value, grid)
+    def from_grid(self, grid: jax.Array) -> jax.Array:
+        """Compute irreps from grid representation"""
+        from_grid_mat = jnp.asarray(self.from_grid_mat, dtype=grid.dtype)
+        embedding = jnp.einsum("bai, zbac -> zic", from_grid_mat, grid)
         return embedding
 
-    def to_m_prime_format(self, perm: jax.Array) -> 'SO3Grid':
-        """Operate on m primary mode so there is no need to permute the input/output."""
-        # This will only be called once so not be optimized.
-        new_grid = SO3Grid(
-            self.lmax, self.mmax, self.normalization, self.resolution, dtype=self.dtype
-        )
-        state = nnx.state(self)
-        state['to_grid_mat'] = state['to_grid_mat'][:, :, perm]
-        state['from_grid_mat'] = state['from_grid_mat'][:, :, perm]
-        nnx.update(new_grid, state)
-        return new_grid
+
+@cache
+def get_s2grid_mats(
+    lmax: int,
+    mmax: int,
+    normalization: str = "component",
+    resolution: int | None = None,
+    m_prime: bool = False,
+) -> S2GridMats:
+    """Create the S2Grid matrix for given lmax and mmax."""
+    mask = get_order_mask(lmax, mmax)
+
+    if resolution is not None:
+        lat_resolution = resolution
+        long_resolution = resolution
+    else:
+        lat_resolution = 2 * (lmax + 1)
+        long_resolution = 2 * (mmax + 1 if lmax == mmax else mmax) + 1
+
+    # rescale last dimension based on mmax
+    rescale_matrix = get_rescale_mat(lmax, mmax)
+
+    to_grid_mat, from_grid_mat = _get_s2grid_mat(
+        lmax,
+        lat_resolution,
+        long_resolution,
+        normalization=normalization,
+    )
+    to_grid_mat = (to_grid_mat * rescale_matrix)[:, :, mask]
+    from_grid_mat = (from_grid_mat * rescale_matrix)[:, :, mask]
+
+    if m_prime:
+        # This will be reused by lru_cache.
+        perm = get_mapping_coeffs(lmax, mmax).perm
+        to_grid_mat = to_grid_mat[:, :, perm]
+        from_grid_mat = from_grid_mat[:, :, perm]
+
+    return S2GridMats(to_grid_mat, from_grid_mat)

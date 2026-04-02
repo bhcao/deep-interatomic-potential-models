@@ -1,4 +1,4 @@
-# Copyright 2025 Cao Bohan
+# Copyright 2025 Zhongguancun Academy
 #
 # DIPM is free software: you can redistribute it and/or modify it under the terms
 # of the GNU Lesser General Public License as published by the Free Software
@@ -12,23 +12,21 @@
 # You should have received a copy of the GNU Lesser General Public License along
 # with this program. If not, see <https://www.gnu.org/licenses/>.
 
-import jax
 import jax.numpy as jnp
 from flax import nnx
 
-from dipm.layers.escn.transform import SO3Grid
-from dipm.layers.escn.utils import expand_index
+from dipm.layers.escn.transform import get_s2grid_mats
+from dipm.layers.escn.utils import get_expand_index
 
 
 class GateActivation(nnx.Module):
-    '''Apply gate for vector and silu for scalar.'''
+    """Apply gate for vector and silu for scalar."""
 
     def __init__(self, lmax: int, mmax: int, num_channels: int, m_prime: bool = False):
         self.lmax = lmax
+        self.mmax = mmax
         self.num_channels = num_channels
-
-        # Can be used directly on m_prime representation
-        self.expand_index = nnx.Cache(expand_index(lmax, mmax, vector_only=True, m_prime=m_prime))
+        self.m_prime = m_prime
 
     def __call__(self, gating_scalars, input_tensors):
         """
@@ -36,10 +34,15 @@ class GateActivation(nnx.Module):
         `input_tensors`: shape  [N, (lmax + 1) ** 2, num_channels]
         """
 
+        # Can be used directly on m_prime representation
+        expand_index = get_expand_index(
+            self.lmax, self.mmax, vector_only=True, m_prime=self.m_prime
+        )
+
         gating_scalars = nnx.sigmoid(gating_scalars)
         gating_scalars = gating_scalars.reshape(
             gating_scalars.shape[0], self.lmax, self.num_channels
-        )[:, self.expand_index.value]
+        )[:, expand_index]
 
         input_tensors_scalars = nnx.silu(input_tensors[:, 0:1])
         input_tensors_vectors = input_tensors[:, 1:] * gating_scalars
@@ -53,26 +56,28 @@ class GateActivation(nnx.Module):
 class S2Activation(nnx.Module):
     """Apply silu on sphere function."""
 
-    def __init__(self, so3_grid: SO3Grid, perm: jax.Array | None = None):
-        # activation in l_prime representation
-        if perm is None:
-            self.so3_grid = so3_grid
-        else:
-            # activation in m_prime representation
-            self.so3_grid = so3_grid.to_m_prime_format(perm)
+    def __init__(self, lmax: int, mmax: int, resolution: int, m_prime: bool = False):
+        self.lmax = lmax
+        self.mmax = mmax
+        self.resolution = resolution
+        self.m_prime = m_prime
 
     def __call__(self, inputs):
-        x_grid = self.so3_grid.to_grid(inputs)
+        so3_grid = get_s2grid_mats(
+            self.lmax, self.mmax, resolution=self.resolution, m_prime=self.m_prime
+        )
+
+        x_grid = so3_grid.to_grid(inputs)
         x_grid = nnx.silu(x_grid)
-        outputs = self.so3_grid.from_grid(x_grid)
+        outputs = so3_grid.from_grid(x_grid)
         return outputs
 
 
 class SeparableS2Activation(nnx.Module):
     """Apply silu on sphere function for vector and silu directly for scalar."""
 
-    def __init__(self, so3_grid: SO3Grid, perm: jax.Array | None = None):
-        self.s2_act = S2Activation(so3_grid, perm)
+    def __init__(self, lmax: int, mmax: int, resolution: int, m_prime: bool = False):
+        self.s2_act = S2Activation(lmax, mmax, resolution, m_prime)
 
     def __call__(self, input_scalars, input_tensors):
         output_scalars = nnx.silu(input_scalars)

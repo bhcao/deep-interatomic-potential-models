@@ -16,6 +16,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from functools import cache
+
 import e3nn_jax as e3nn
 from flax import nnx
 from flax.typing import Dtype
@@ -46,17 +48,14 @@ class Contraction(nnx.Module):
         rngs: nnx.Rngs,
     ):
         self.order = order
+        self.keep_irrep_out = keep_irrep_out
         self.gradient_normalization = gradient_normalization
+        self.sym_tp_basis = symmetric_tensor_product_basis
         self.off_diagonal = off_diagonal
 
-        if symmetric_tensor_product_basis:
-            reduced_basis = e3nn.reduced_symmetric_tensor_product_basis(
-                node_irreps, order, keep_ir=keep_irrep_out
-            )
-        else:
-            reduced_basis = e3nn.reduced_tensor_product_basis(
-                [node_irreps] * order, keep_ir=keep_irrep_out
-            )
+        reduced_basis = self._get_reduced_basis(
+            node_irreps, order, keep_irrep_out, symmetric_tensor_product_basis
+        )
 
         weights = []
         for mul, _ in reduced_basis.irreps:
@@ -68,8 +67,21 @@ class Contraction(nnx.Module):
             weights.append(w)
         self.weights = nnx.List(weights)
 
-        self.reduced_basis = nnx.Cache(reduced_basis.astype(dtype))
         self.dtype = dtype
+
+    @cache
+    @staticmethod
+    def _get_reduced_basis(
+        node_irreps, order, keep_irrep_out, sym_tp_basis
+    ):
+        if sym_tp_basis:
+            return e3nn.reduced_symmetric_tensor_product_basis(
+                node_irreps, order, keep_ir=keep_irrep_out
+            )
+
+        return e3nn.reduced_tensor_product_basis(
+            [node_irreps] * order, keep_ir=keep_irrep_out
+        )
 
     def __call__(
         self,
@@ -88,7 +100,9 @@ class Contraction(nnx.Module):
         else:
             x_ = node_feats.array
 
-        reduced_basis = self.reduced_basis.value
+        reduced_basis = self._get_reduced_basis(
+            node_feats.irreps, self.order, self.keep_irrep_out, self.sym_tp_basis
+        )
 
         for (mul, ir_out), u, weight in zip(
             reduced_basis.irreps, reduced_basis.chunks, weights
@@ -182,7 +196,7 @@ class SymmetricContraction(nnx.Module):
         """
 
         def fn(features: e3nn.IrrepsArray, index: jax.Array):
-            '''
+            """
             This operation is parallel on the feature dimension (but each feature has its own parameters)
             This operation is an efficient implementation of
             vmap(lambda w, x: FunctionalLinear(irreps_out)(w, concatenate([x, tensor_product(x, x), 
@@ -191,7 +205,7 @@ class SymmetricContraction(nnx.Module):
             Args:
                 features: [num_features, irreps_x.dim]
                 index: int
-            '''
+            """
             assert index.ndim == 0
             out = {}
             for contraction in self.contractions:  # correlation, ..., 1

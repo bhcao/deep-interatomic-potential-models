@@ -1,4 +1,4 @@
-# Copyright 2025 Cao Bohan
+# Copyright 2025 Zhongguancun Academy
 #
 # DIPM is free software: you can redistribute it and/or modify it under the terms
 # of the GNU Lesser General Public License as published by the Free Software
@@ -22,7 +22,14 @@ from dipm.data.dataset_info import DatasetInfo
 from dipm.models.atomic_energies import get_atomic_energies
 from dipm.models.force_model import ForceModel
 from dipm.models.so3krates.blocks import (
-    MLP, ResidualMLP, FeatureBlock, GeometricBlock, InteractionBlock, ZBLRepulsion
+    MLP,
+    AlignedLinear,
+    ResidualMLP,
+    FeatureBlock,
+    GeometricBlock,
+    InteractionBlock,
+    ZBLRepulsion,
+    aligned_norm,
 )
 from dipm.models.so3krates.config import So3kratesConfig
 from dipm.layers import (
@@ -65,6 +72,8 @@ class So3krates(ForceModel):
             rngs = nnx.Rngs(42)
         super().__init__(config, dataset_info, dtype=dtype)
 
+        e3nn.config("gradient_normalization", "path")
+
         r_max = self.dataset_info.cutoff_distance_angstrom
 
         avg_num_neighbors = self.config.avg_num_neighbors
@@ -73,11 +82,14 @@ class So3krates(ForceModel):
 
         num_species = len(self.dataset_info.atomic_energies_map)
 
-        # Is it necessary to allow users to modify here?
-        chi_irreps = e3nn.Irreps(self.config.chi_irreps)
-        rad_features = [self.config.num_rbf] + [self.config.num_channels] * 2
+        rad_features = [
+            self.config.num_rbf, self.config.rad_hidden_channels, self.config.num_channels
+        ]
+        num_irreps = self.config.l_max * self.config.irreps_mul
+        if self.config.scalar_num_scale is not None:
+            num_irreps *= self.config.scalar_num_scale
         sph_features = [
-            chi_irreps.num_irreps, self.config.num_channels // 4, self.config.num_channels
+            num_irreps, self.config.sph_hidden_channels, self.config.num_channels
         ]
 
         so3krates_kwargs = dict(
@@ -85,13 +97,16 @@ class So3krates(ForceModel):
             num_layers=self.config.num_layers,
             num_channels=self.config.num_channels,
             num_rbf=self.config.num_rbf,
-            chi_irreps=chi_irreps,
+            l_max=self.config.l_max,
+            irreps_mul=self.config.irreps_mul,
             fb_rad_features=rad_features,
             gb_rad_features=rad_features,
             fb_sph_features=sph_features,
             gb_sph_features=sph_features,
             radial_basis_fn=self.config.radial_basis_fn,
             sphc_normalization=self.config.sphc_normalization,
+            scalar_num_scale=self.config.scalar_num_scale,
+            num_ib_linear=self.config.num_ib_linear,
             residual_mlp_1=self.config.residual_mlp_1,
             residual_mlp_2=self.config.residual_mlp_2,
             normalization=self.config.normalization,
@@ -116,9 +131,7 @@ class So3krates(ForceModel):
                 index_to_z, dtype=self.dtype, param_dtype=self.param_dtype, rngs=rngs
             )
 
-        self.atomic_energies = nnx.Cache(get_atomic_energies(
-            self.dataset_info, self.config.atomic_energies, num_species, dtype=self.dtype
-        ))
+        self.num_species = num_species
 
     def __call__(
         self,
@@ -151,11 +164,14 @@ class So3krates(ForceModel):
             node_energies += e_rep - self.config.zbl_repulsion_shift
 
         # TODO: multi-task support
+        atomic_energies = get_atomic_energies(
+            self.dataset_info, self.config.atomic_energies, self.num_species, self.dtype
+        )
         if self.dataset_info.task_list is not None:
             task = jnp.repeat(task, n_node, total_repeat_length=len(node_species))
-            node_energies += self.atomic_energies.value[node_species, task]  # [n_nodes, ]
+            node_energies += atomic_energies[node_species, task]  # [n_nodes, ]
         else:
-            node_energies += self.atomic_energies.value[node_species]  # [n_nodes, ]
+            node_energies += atomic_energies[node_species]  # [n_nodes, ]
 
         return node_energies
 
@@ -167,7 +183,8 @@ class So3kratesBlock(nnx.Module):
         num_channels: int,
         num_species: int,
         num_rbf: int,
-        chi_irreps: e3nn.Irreps,
+        l_max: int,
+        irreps_mul: int,
         fb_rad_features: list[int],
         gb_rad_features: list[int],
         fb_sph_features: list[int],
@@ -175,6 +192,8 @@ class So3kratesBlock(nnx.Module):
         cutoff: float = 5.0,
         radial_basis_fn: str = 'phys',
         sphc_normalization: float | None = None,
+        scalar_num_scale: int | None = None,
+        num_ib_linear: int | None = None,
         activation: str = 'silu',
         num_heads: int = 4,
         residual_mlp_1: bool = False,
@@ -188,11 +207,11 @@ class So3kratesBlock(nnx.Module):
         param_dtype: Dtype = jnp.float32,
         rngs: nnx.Rngs,
     ):
-        self.chi_irreps = chi_irreps
+        self.chi_irreps = e3nn.Irreps([i for _ in range(irreps_mul) for i in range(1, l_max + 1)])
         self.sphc_normalization = sphc_normalization
 
         self.radial_embedding = get_radial_basis_cls(radial_basis_fn)(
-            cutoff, num_rbf, dtype=dtype, param_dtype=param_dtype, rngs=rngs
+            cutoff, num_rbf, trainable=False, dtype=dtype, param_dtype=param_dtype, rngs=rngs
         )
         self.node_embedding = nnx.Embed(
             num_species, num_channels, dtype=dtype, param_dtype=param_dtype, rngs=rngs
@@ -202,7 +221,7 @@ class So3kratesBlock(nnx.Module):
             So3kratesLayer(
                 num_channels,
                 num_heads,
-                chi_irreps,
+                self.chi_irreps,
                 fb_rad_features,
                 gb_rad_features,
                 fb_sph_features,
@@ -211,12 +230,15 @@ class So3kratesBlock(nnx.Module):
                 residual_mlp_1,
                 residual_mlp_2,
                 normalization,
+                scalar_num_scale,
+                num_ib_linear,
                 avg_num_neighbors,
+                first_layer=(i == 0),
                 dtype=dtype,
                 param_dtype=param_dtype,
                 rngs=rngs
             )
-            for _ in range(num_layers)
+            for i in range(num_layers)
         ])
 
         self.energy_output = MLP(
@@ -243,12 +265,12 @@ class So3kratesBlock(nnx.Module):
 
         # Initalize node features and spherical harmonic coordinates (SPHCs)
         node_feats = self.node_embedding(node_species)
-        if self.sphc_normalization is None:
-            chi = e3nn.zeros(self.chi_irreps, (node_species.shape[0],), dtype=edge_vectors.dtype)
-        else:
+        if self.sphc_normalization is not None:
             chi = e3nn.scatter_sum(
                 edge_sh * cutoffs[:, None], dst=receivers, output_size=node_species.shape[0]
             ) / self.sphc_normalization
+        else:
+            chi = None
 
         for layer in self.layers:
             node_feats, chi = layer(
@@ -281,7 +303,10 @@ class So3kratesLayer(nnx.Module):
         residual_mlp_1: bool = False,
         residual_mlp_2: bool = False,
         normalization: bool = False,
+        scalar_num_scale: int | None = None,
+        num_ib_linear: int | None = None,
         avg_num_neighbors: float = 1.0,
+        first_layer: bool = False,
         *,
         dtype: Dtype | None = None,
         param_dtype: Dtype = jnp.float32,
@@ -290,12 +315,23 @@ class So3kratesLayer(nnx.Module):
         self.normalization = normalization
         self.residual_mlp_1 = residual_mlp_1
         self.residual_mlp_2 = residual_mlp_2
+        self.scalar_num_scale = scalar_num_scale
+        self.first_layer = first_layer
+
+        if scalar_num_scale is not None and not first_layer:
+            self.scalar_linear = AlignedLinear(
+                chi_irreps, 2 * chi_irreps.regroup().mul_gcd * scalar_num_scale, split=2,
+                dtype=dtype, param_dtype=param_dtype, rngs=rngs
+            )
 
         if normalization:
             self.ln1 = nnx.LayerNorm(
                 num_channels, dtype=dtype, param_dtype=param_dtype, rngs=rngs
             )
             self.ln2 = nnx.LayerNorm(
+                num_channels, dtype=dtype, param_dtype=param_dtype, rngs=rngs
+            )
+            self.ln3 = nnx.LayerNorm(
                 num_channels, dtype=dtype, param_dtype=param_dtype, rngs=rngs
             )
 
@@ -305,6 +341,7 @@ class So3kratesLayer(nnx.Module):
             sph_features=fb_sph_features,
             activation=activation,
             avg_num_neighbors=avg_num_neighbors,
+            first_layer=first_layer,
             dtype=dtype,
             param_dtype=param_dtype,
             rngs=rngs
@@ -316,13 +353,15 @@ class So3kratesLayer(nnx.Module):
             sph_features=gb_sph_features,
             activation=activation,
             avg_num_neighbors=avg_num_neighbors,
+            first_layer=first_layer,
             dtype=dtype,
             param_dtype=param_dtype,
             rngs=rngs
         )
 
         self.interaction_block = InteractionBlock(
-            num_channels + chi_irreps.num_irreps, dtype=dtype, param_dtype=param_dtype, rngs=rngs
+            num_channels, chi_irreps, scalar_num_scale, num_ib_linear,
+            dtype=dtype, param_dtype=param_dtype, rngs=rngs
         )
 
         if residual_mlp_1:
@@ -338,15 +377,24 @@ class So3kratesLayer(nnx.Module):
     def __call__(
         self,
         node_feats: jax.Array,
-        chi: e3nn.IrrepsArray,
+        chi: e3nn.IrrepsArray | None,
         edge_feats: jax.Array,
         edge_sh: e3nn.IrrepsArray,
         cutoffs: jax.Array,
         senders: jax.Array,
         receivers: jax.Array
     ) -> tuple[jax.Array, e3nn.IrrepsArray]:
-        chi_ij = chi[senders] - chi[receivers]
-        chi_scalar = e3nn.norm(chi_ij, squared=True, per_irrep=True).array
+        if chi is not None:
+            assert not self.first_layer, "chi should be None for the first layer"
+            if self.scalar_num_scale is not None:
+                chi_senders, chi_receivers = self.scalar_linear(chi)
+                chi_ij = chi_senders[senders] - chi_receivers[receivers]
+            else:
+                chi_ij = chi[senders] - chi[receivers]
+            chi_scalar = aligned_norm(chi_ij)
+        else:
+            assert self.first_layer, "chi should not be None for other layers"
+            chi_scalar = None
 
         # first block
         node_feats_pre = self.ln1(node_feats) if self.normalization else node_feats
@@ -360,6 +408,9 @@ class So3kratesLayer(nnx.Module):
             receivers=receivers
         )
 
+        node_feats = node_feats + diff_node_feats
+        node_feats_pre = self.ln2(node_feats) if self.normalization else node_feats
+
         diff_chi = self.geometric_block(
             edge_sh=edge_sh,
             node_feats=node_feats_pre,
@@ -370,14 +421,16 @@ class So3kratesLayer(nnx.Module):
             receivers=receivers
         )
 
-        node_feats = node_feats + diff_node_feats
-        chi = chi + diff_chi
+        if chi is None:
+            chi = diff_chi
+        else:
+            chi = chi + diff_chi
 
         # second block
         if self.residual_mlp_1:
             node_feats = self.mlp1(node_feats)
 
-        node_feats_pre = self.ln2(node_feats) if self.normalization else node_feats
+        node_feats_pre = self.ln3(node_feats) if self.normalization else node_feats
 
         diff_node_feats, diff_chi = self.interaction_block(node_feats_pre, chi)
 

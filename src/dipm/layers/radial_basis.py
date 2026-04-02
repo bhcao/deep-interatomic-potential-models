@@ -1,4 +1,4 @@
-# Copyright 2025 Cao Bohan
+# Copyright 2025 Zhongguancun Academy
 #
 # DIPM is free software: you can redistribute it and/or modify it under the terms
 # of the GNU Lesser General Public License as published by the Free Software
@@ -13,6 +13,7 @@
 # with this program. If not, see <https://www.gnu.org/licenses/>.
 
 from enum import Enum
+from functools import cache
 
 import jax
 import jax.numpy as jnp
@@ -36,11 +37,13 @@ class ExpNormalBasis(nnx.Module):
         rngs: nnx.Rngs,
         **_kwargs, # to capture rbf_width
     ):
+        self.cutoff = cutoff
         self.alpha = 5.0 / cutoff
+        self.num_rbf = num_rbf
         self.trainable = trainable
 
-        means, betas = self._initial_params(cutoff, num_rbf)
         if trainable:
+            means, betas = self._initial_params(cutoff, num_rbf, param_dtype)
             means_key = rngs.params()
             self.means = nnx.Param(
                 initializers.constant(means)(means_key, (num_rbf,), param_dtype)
@@ -49,22 +52,27 @@ class ExpNormalBasis(nnx.Module):
             self.betas = nnx.Param(
                 initializers.constant(betas)(betas_key, (num_rbf,), param_dtype)
             )
-        else:
-            self.means = nnx.Cache(means)
-            self.betas = nnx.Cache(betas)
 
         self.dtype = dtype
 
-    def _initial_params(self, cutoff, num_rbf):
+    @cache
+    @staticmethod
+    def _initial_params(cutoff, num_rbf, dtype):
         start_value = jnp.exp(-cutoff)
-        means = jnp.linspace(start_value, 1, num_rbf)
-        betas = jnp.full((num_rbf,), (2 / num_rbf * (1 - start_value)) ** -2)
+        means = jnp.linspace(start_value, 1, num_rbf, dtype=dtype)
+        betas = jnp.full(
+            (num_rbf,), (2 / num_rbf * (1 - start_value)) ** -2, dtype=dtype
+        )
         return means, betas
 
     def __call__(self, dist: jax.Array) -> jax.Array:
-        dist, betas, means = dtypes.promote_dtype(
-            (dist, self.betas.value, self.means.value), dtype=self.dtype
-        )
+        if self.trainable:
+            dist, betas, means = dtypes.promote_dtype(
+                (dist, self.betas.value, self.means.value), dtype=self.dtype
+            )
+        else:
+            dist, = dtypes.promote_dtype((dist,), dtype=self.dtype)
+            means, betas = self._initial_params(self.cutoff, self.num_rbf, self.dtype)
 
         dist = dist[..., None]
         return jnp.exp(
@@ -88,10 +96,13 @@ class GaussianBasis(nnx.Module):
         param_dtype: Dtype = jnp.float32,
         rngs: nnx.Rngs,
     ):
+        self.cutoff = cutoff
+        self.num_rbf = num_rbf
+        self.rbf_width = rbf_width
         self.trainable = trainable
 
-        offset, coeff = self._initial_params(cutoff, num_rbf, rbf_width)
         if trainable:
+            offset, coeff = self._initial_params(cutoff, num_rbf, rbf_width, param_dtype)
             offset_key = rngs.params()
             self.offset = nnx.Param(
                 initializers.constant(offset)(offset_key, (num_rbf,), param_dtype)
@@ -100,21 +111,26 @@ class GaussianBasis(nnx.Module):
             self.coeff = nnx.Param(
                 initializers.constant(coeff)(coeff_key, (), param_dtype)
             )
-        else:
-            self.offset = nnx.Cache(offset)
-            self.coeff = nnx.Cache(coeff)
 
         self.dtype = dtype
 
-    def _initial_params(self, cutoff, num_rbf, rbf_width):
-        offset = jnp.linspace(0, cutoff, num_rbf)
+    @cache
+    @staticmethod
+    def _initial_params(cutoff, num_rbf, rbf_width, dtype):
+        offset = jnp.linspace(0, cutoff, num_rbf, dtype=dtype)
         coeff = -0.5 / (rbf_width * (offset[1] - offset[0])) ** 2
         return offset, coeff
 
     def __call__(self, dist: jax.Array) -> jax.Array:
-        dist, offset, coeff = dtypes.promote_dtype(
-            (dist, self.offset.value, self.coeff.value), dtype=self.dtype
-        )
+        if self.trainable:
+            dist, offset, coeff = dtypes.promote_dtype(
+                (dist, self.offset.value, self.coeff.value), dtype=self.dtype
+            )
+        else:
+            dist, = dtypes.promote_dtype((dist,), dtype=self.dtype)
+            offset, coeff = self._initial_params(
+                self.cutoff, self.num_rbf, self.rbf_width, self.dtype
+            )
 
         dist = dist[..., None] - offset
         return jnp.exp(coeff * jnp.square(dist))
